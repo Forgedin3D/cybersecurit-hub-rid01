@@ -32,6 +32,7 @@ Waveshare ESP32-S3-Touch-LCD-3.5 Rev2.0 (480 × 320), Kali Linux VM, Arduino CLI
 
 ## Engineering records
 
+- **[Full project handoff — October 29, 2026](docs/HANDOFF_2026-10-29.md)** (next-thread recovery, firmware hashes, test evidence and remaining gates)
 - [Architecture and technical constraints](docs/ARCHITECTURE.md)
 - [Firmware acceptance baselines and hashes](docs/BASELINES.md)
 - [Validation evidence and open QA](docs/VALIDATION.md)
