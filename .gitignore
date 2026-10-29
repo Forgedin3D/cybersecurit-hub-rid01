@@ -1,0 +1,46 @@
+# Build products, Arduino cache and local IDE state
+build/
+build-*/
+build_*/
+.cache/
+.arduino15/
+.vscode/
+.idea/
+*.elf
+*.bin
+*.map
+*.hex
+*.uf2
+*.o
+*.d
+*.a
+*.pyc
+__pycache__/
+
+# OS/editor debris
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+
+# Runtime secrets and local environments
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# Private/unsanitized RF and flight field captures
+private-data/
+raw-captures/
+flight-logs/
+*.pcap
+*.pcapng
+
+# Explicitly review screenshots, CSV exports, and serial logs before committing:
+# they may reveal IDs, coordinates, aircraft metadata, BLE MACs, or personal data.
