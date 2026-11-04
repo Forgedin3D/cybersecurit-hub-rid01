@@ -63,6 +63,18 @@ D4H-B clean compilation: **PASS**, Arduino ESP32 core 3.3.11; sketch 689,543 byt
 
 Earlier standalone ESP32-2432S028R functional acceptance documented 2026-10-12 includes: 12-minute two-target endurance (13 windows, 71,427 BLE callbacks, 9,438 validated RID packets), five-minute no-target rejection (25,904 ambient BLE callbacks and zero validated RID), and four-target lifecycle/reacquisition (124.920 sec, three windows, 11,540 BLE callbacks, 1,986 validated RID packets, zero allocation failures). **These statistics belong to CYD1 and must not be presented as Waveshare D4H results.**
 
+## BAT-D4E-3B provisional firmware acceptance freeze (2026-11-04)
+
+Operator completed source-only freeze and SHA verification of the candidate, frozen copy and prior R2 rollback. BAT-D4E-3B frozen SHA-256: `2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670`. Archive named `RID_UI_Migration.ino.STAGE1B-BAT-D4E-3B-LOW-VOLTAGE-WARNING-PROVISIONAL-ACCEPTED-2026-11-04`; acceptance report archived locally; no additional firmware upload.
+
+- Proposed warning: valid battery-only voltage **≤3700mV for 15sec** activates and **≥3800mV for 30sec** clears; no automatic shutdown; estimated SOC not used as warning input. These threshold limits **have not been physically validated by deliberately draining the pack**.
+- **R1 synthetic warning state machine:** onboard 12/12 PASS, after power-on and after physical RESET.
+- **R2 display-only UI simulation:** yellow LOW BATTERY label and normal BAT ABSENT/USB POWER restoration observed on HOME, SELECT OUTPUT MODE and TARGETS, but RADAR simulation was not photographed/tested during that run.
+- **3B USB-only field regression:** two operator captures including RESET requiring ACK, PRIVATE/OPEN, SNAPSHOT/RETURN, RESCAN, STOP/HOME; normal absent-battery header, no false warning.
+- **3C LiPo-only healthy-voltage test:** 15min, 3.83V/EST73% at start, 3.78V/EST65% end, **3.77V minimum observed** while scanning, no visible warning or abnormal battery heating. R111S on during latter part but this run lacked serial packet evidence. No low-battery triggering was expected because observed voltage was above the candidate threshold.
+- **3D R111S live decode:** 1,012 validated packets in TARGETS-focused session; 961 in RADAR-focused session; T01 ACTIVE with reported valid position, 3 scan windows per session, no user-visible STALE or LOST while aircraft remained on. This does **not** qualify forced ACTIVE→STALE→LOST after transmitter power-off. With valid manual receiver reference, RADAR quickly switched ACQUIRING→READY when target geo was fresh. Later READY→ACQUIRING→READY transient is observed but not proven to be solely from any single cause.
+- Residual items include actual voltage-triggered hardware alert and recovery, charge completion, true capacity, direct cell temperature, no-fix GNSS scenarios, combined BLE/Wi-Fi and serial STOP footer corruption. **Milestone scope is provisional, not final battery safety certification.**
+
 ## BAT-D4E-3D real-aircraft BLE validation (2026-11-04)
 
 Two operator-run, redacted serial monitor captures on **BAT-D4E-3B TEST_ONLY**, real Ruko R111S, USB-only Waveshare (LiPo disconnected):
