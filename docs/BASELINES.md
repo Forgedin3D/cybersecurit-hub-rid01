@@ -11,7 +11,8 @@
 | **STAGE1B-D4H** | **2026-10-29** | Cold-boot operator acknowledgment + historical reset acceptance | **`7bdb2be698c63aba895e5b892f29478f8e215807126eb155bac9abd8fcabbfcf`** | **Accepted historical local working source and frozen snapshot; later RESET qualification applies** |
 | BAT-D4B | 2026-10-30 | Voltage/source power header | `f26d860255f933de068c71b4ce8960187cbcad6ffa634ed051c8fd0277eba3ea` | Frozen accepted source |
 | BAT-D4C | 2026-10-30 | Startup cell-temperature limitation and charging-safety notice | `5a55a5d9fe0b95ecf4943199793fbdba87016ca10d1fa5bf12ea138dfb8e314e` | Frozen accepted source |
-| **BAT-D4D-R2** | **2026-10-31** | **Estimated SOC, measured voltage and power state across HOME/PRIVACY/LIVE views** | **`a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e`** | **Newest accepted/frozen source; physically flashed/restored on 2026-11-04** |
+| **BAT-D4D-R2** | **2026-10-31** | **Estimated SOC, measured voltage and power state across HOME/PRIVACY/LIVE views** | **`a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e`** | **Previous accepted/frozen rollback; physically flashed/restored during 2026-11-04 diagnostics** |
+| **BAT-D4E-3B** | **2026-11-04** | **Low-voltage operator warning, 3.70V/15s trigger and 3.80V/30s clear, no auto shutdown** | **`2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670`** | **PROVISIONALLY ACCEPTED; SHA-verified immutable-by-convention frozen archive, installed test candidate; thresholds physically unqualified** |
 
 ## Current local acceptance files (Kali VM)
 
@@ -29,9 +30,18 @@ Operator-run freeze command on 2026-10-29 verified:
 - D4G frozen rollback hash remained unchanged.
 - No additional firmware upload was performed by the freeze step; physical D4H-B testing was completed prior to freeze.
 
+## BAT-D4E-3B source freeze and acceptance (2026-11-04)
+
+- **Current provisional source and physically installed test image:** SHA-256 `2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670`. The operator previously uploaded BAT-D4E-3B, then completed a **source-only acceptance freeze** (no upload or PMIC register writes).
+- Frozen archive: `~/Waveshare_RID_S3/RID_UI_Migration/RID_UI_Migration.ino.STAGE1B-BAT-D4E-3B-LOW-VOLTAGE-WARNING-PROVISIONAL-ACCEPTED-2026-11-04`. Source candidate: `~/Waveshare_RID_S3/RID01_BAT_D4E3_B_WARNING_CANDIDATE_TEST_ONLY/RID_UI_Migration/RID_UI_Migration.ino`. Acceptance report: `~/Waveshare_RID_S3/RID01_BAT_D4E3_B_WARNING_CANDIDATE_TEST_ONLY/BAT-D4E-3B-PROVISIONAL-ACCEPTANCE-2026-11-04.txt`. Both source files and the earlier BAT-D4D-R2 archive **SHA verification PASS** after the freeze.
+- Clean compile: **691,519 sketch bytes (21%), 31,668 globals (9%)**. Warnings use live battery voltage only, subject to battery-present, USB-absent, telemetry-valid status; trigger at **≤3700mV sustained 15s**, clear at **≥3800mV sustained 30s**. No automatic shutdown and no dependency on provisional EST:%.
+- Evidence: separate 12/12 synthetic FSM self-test; physical display simulation shown on HOME, PRIVACY and TARGETS, returning normally to USB header; USB-only 3B control regression; 15-minute supervised battery-only operation with no false alert or abnormal heat; two real R111S sessions **1,012 and 961** validated RID packets with T01 ACTIVE and position VALID, including manual receiver reference RADAR READY and continuous rollover. See [VALIDATION.md](VALIDATION.md) for test scopes and limitations.
+- **Not qualified:** actual on-cell low-voltage trigger or recovery, calibrated charge capacity, observed end-of-charge termination, direct cell temperature, GNSS/Wi-Fi loaded endurance, currently unforced STALE→LOST transitions. 3D tests did **not** observe STALE/LOST while R111S was powered, but did not force an aircraft-off transition. RADAR became READY rapidly once fixed coordinates and fresh target data were present; automatic GNSS fix-loss/reacquisition remains pending.
+- Previous D4H original working `.ino` and BAT-D4D-R2 rollback remain on Kali and unchanged. Marking the archive read-only with `chmod a-w` protects against ordinary accidental edits, not all modifications; always verify SHA-256 before future use.
+
 ## Battery milestones and separate test firmware (October 30–November 4)
 
-**Filesystem nuance:** The Kali working `~/Waveshare_RID_S3/RID_UI_Migration/RID_UI_Migration.ino` remained the **D4H original source** through BAT-D4E-2B. The newest accepted R2 source is an **immutable named archive**, and the **physically installed device** was deliberately restored from that archive on 2026-11-04. Do not assume the working file, archive, and flashed image are the same until verified.
+**Filesystem nuance:** The Kali working `~/Waveshare_RID_S3/RID_UI_Migration/RID_UI_Migration.ino` remained the **D4H original source** through BAT-D4E-2B. The accepted BAT-D4D-R2 source is a frozen rollback archive. It was re-flashed during 2026-11-04 PMIC diagnostics; **the physically installed device was later flashed with BAT-D4E-3B**, which was subsequently frozen without additional upload. Do not assume the working file, archive, and flashed image are the same until verified.
 
 ```text
 ~/Waveshare_RID_S3/RID_UI_Migration/
