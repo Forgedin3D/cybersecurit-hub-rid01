@@ -4,7 +4,7 @@
 
 An independently tested touchscreen **passive cooperative Remote ID receiver** built on a Waveshare ESP32-S3-Touch-LCD-3.5 Rev2.0. The existing firmware processes **Bluetooth Low Energy (BLE) Remote ID** data, manages multiple targets and lifecycle states, and displays coordinate-derived geographic context. **2.4 GHz Wi-Fi Beacon Remote ID and onboard GNSS are V1 requirements still under development.**
 
-> **Engineering status (2026-10-29):** Current accepted local firmware: **STAGE1B-D4H**, cold-power-on operator acknowledgment, SHA-256 `7bdb2be698c63aba895e5b892f29478f8e215807126eb155bac9abd8fcabbfcf`. The validated firmware source remains on the operator's Kali VM and is **not yet uploaded to this repository**. Repository commits begin later than the original development work.
+> **Engineering status (2026-11-04):** Latest *accepted and physically flashed* local image: **BAT-D4D-R2**, provisional power/voltage/EST% UI, SHA-256 `a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e`. On November 4 the operator successfully restored it after a read-only PMIC diagnostic (691,167 bytes sketch, 31,652 bytes globals). D4H remains an earlier accepted rollback and the original local working `.ino` still reflects D4H. The reviewed source is **not yet uploaded to this documentation-only repository**. Current post-restore UI test is pending operator confirmation.
 
 ## Current validated behavior
 
@@ -13,7 +13,7 @@ An independently tested touchscreen **passive cooperative Remote ID receiver** b
 - TARGETS and a **north-up, coordinate-derived RADAR-style display**. **Not** an RF radar and **not** RSSI-based ranging.
 - Geographic plotting requires a valid receiver reference **and fresh target coordinates**. Stale coordinates are not plotted; LOST targets are hidden.
 - PRIVATE (default) / OPEN output modes and frozen SNAPSHOT handling.
-- Physically tested cold-power-on acknowledgment, reset gating, and D4G STOP/HOME behavior (**D4H five-test acceptance: 5/5 PASS**).
+- Physically tested cold-power-on acknowledgment and D4G STOP/HOME. Historical D4H report recorded 5/5 pass; a later instrumented physical RESET check showed the board may re-require acknowledgment after RESET. See [validation](docs/VALIDATION.md) for the dated correction.
 
 ## V1 target (not yet delivered)
 
@@ -23,8 +23,19 @@ An independently tested touchscreen **passive cooperative Remote ID receiver** b
 | 2.4 GHz Wi-Fi Beacon Remote ID | Required for V1; proof-of-concept and real-DJI testing pending |
 | GNSS receiver position | LC76G ordered; integration pending |
 | BLE + Wi-Fi combined operation | Required target; ESP32-S3 coexistence/channel performance unproven |
-| Battery operation/charging | Hardware evaluation pending; pack **must not be connected** until verified |
+| Battery operation/charging | Polarity and controlled LiPo operation validated; 45-min mixed-use BLE-only endurance PASS; read-only USB-only PMIC audit PASS. Remaining SOC accuracy, low-voltage alert and charger termination qualification OPEN |
 | 5 GHz / non-cooperative RF | **Not part of V1**; future hardware research |
+
+## New accepted work: battery engineering (October 30–November 4, 2026)
+
+- **BAT-D4B** (2026-10-30): Power/voltage header across supported screens; accepted source SHA-256 `f26d860255f933de068c71b4ce8960187cbcad6ffa634ed051c8fd0277eba3ea`.
+- **BAT-D4C** (2026-10-30): Cell-temperature-sensing limitation and operator charging-safety notice; SHA-256 `5a55a5d9fe0b95ecf4943199793fbdba87016ca10d1fa5bf12ea138dfb8e314e`.
+- **BAT-D4D-R2** (2026-10-31): Provisional `EST:%` and voltage/power state displayed on HOME, SELECT OUTPUT MODE, TARGETS and RADAR; ACK/SNAPSHOT excluded. Live power-source tests PASS; accepted/frozen hash `a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e`.
+- **BAT-D4E-1** (2026-11-03): 45-minute supervised LiPo-only mixed-use HOME/TARGETS/RADAR/STOP, real Ruko R111S reception and navigation; observed 3.88V / EST82% at start and 3.80V / EST64% at end, ~9,000 approximate on-device counter units (not independently validated loss statistic). **PASS limited 45-min mixed-use test**, not maximum endurance.
+- **BAT-D4E-2B** (2026-11-04): 120-sec USB-only read-only AXP2101 register audit, stable charger parameters (programmed 200mA CC, 4.20V CV), no LiPo attached; test firmware subsequently removed and R2 flashed and hash-verified. Sudden earlier SOC transition of about 75% to 30% on USB connection remains unexplained and the gauge **is not calibrated**.
+- Direct LiPo temperature monitoring is absent; supervised charging only. See [baselines](docs/BASELINES.md), [validation](docs/VALIDATION.md) and [Issue #7](https://github.com/Forgedin3D/cybersecurit-hub-rid01/issues/7).
+
+**Agreed sequence:** finish pre-GNSS battery closeout → audit/import code and consolidate repository → integrate LC76G → **freeze a fully tested BLE + battery + GNSS rollback** → only then attempt Wi-Fi Beacon on the shared ESP32-S3 radio. See the [updated roadmap](docs/ROADMAP.md).
 
 ## Hardware and tools
 
