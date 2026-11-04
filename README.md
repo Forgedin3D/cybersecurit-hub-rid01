@@ -4,7 +4,7 @@
 
 An independently tested touchscreen **passive cooperative Remote ID receiver** built on a Waveshare ESP32-S3-Touch-LCD-3.5 Rev2.0. The existing firmware processes **Bluetooth Low Energy (BLE) Remote ID** data, manages multiple targets and lifecycle states, and displays coordinate-derived geographic context. **2.4 GHz Wi-Fi Beacon Remote ID and onboard GNSS are V1 requirements still under development.**
 
-> **Engineering status (2026-11-04):** Latest *accepted and physically flashed* local image: **BAT-D4D-R2**, provisional power/voltage/EST% UI, SHA-256 `a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e`. On November 4 the operator successfully restored it after a read-only PMIC diagnostic (691,167 bytes sketch, 31,652 bytes globals). D4H remains an earlier accepted rollback and the original local working `.ino` still reflects D4H. The reviewed source is **not yet uploaded to this documentation-only repository**. Current post-restore UI test is pending operator confirmation.
+> **Engineering status (2026-11-04):** Newest *provisionally accepted, physically installed and source-frozen* local candidate: **BAT-D4E-3B low-voltage operator warning**, SHA-256 `2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670`. It passed USB-only controls, 15-minute LiPo-only healthy-voltage operation, simulated voltage warning state/display, and two real R111S BLE capture regressions. The low-voltage trigger thresholds and charger termination have **not** been physically qualified. Previous accepted BAT-D4D-R2 (`a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e`) remains frozen rollback; older working master `.ino` still reflects historical D4H. Repository remains **documentation-only; firmware source not yet imported or privacy/license audited**.
 
 ## Current validated behavior
 
@@ -23,7 +23,7 @@ An independently tested touchscreen **passive cooperative Remote ID receiver** b
 | 2.4 GHz Wi-Fi Beacon Remote ID | Required for V1; proof-of-concept and real-DJI testing pending |
 | GNSS receiver position | LC76G ordered; integration pending |
 | BLE + Wi-Fi combined operation | Required target; ESP32-S3 coexistence/channel performance unproven |
-| Battery operation/charging | Polarity and controlled LiPo operation validated; 45-min mixed-use BLE-only endurance PASS; read-only USB-only PMIC audit PASS. Remaining SOC accuracy, low-voltage alert and charger termination qualification OPEN |
+| Battery operation/charging | Polarity, 45-min R2 mixed-use endurance, 15-min 3B LiPo regression, and USB-only PMIC register audit PASS; low-voltage operator warning provisionally source-frozen, physical activation threshold, SOC accuracy and charge termination OPEN |
 | 5 GHz / non-cooperative RF | **Not part of V1**; future hardware research |
 
 ## New accepted work: battery engineering (October 30–November 4, 2026)
@@ -36,6 +36,14 @@ An independently tested touchscreen **passive cooperative Remote ID receiver** b
 - Direct LiPo temperature monitoring is absent; supervised charging only. See [baselines](docs/BASELINES.md), [validation](docs/VALIDATION.md) and [Issue #7](https://github.com/Forgedin3D/cybersecurit-hub-rid01/issues/7).
 
 **Agreed sequence:** finish pre-GNSS battery closeout → audit/import code and consolidate repository → integrate LC76G → **freeze a fully tested BLE + battery + GNSS rollback** → only then attempt Wi-Fi Beacon on the shared ESP32-S3 radio. See the [updated roadmap](docs/ROADMAP.md).
+
+## BAT-D4E-3B provisional warning acceptance — November 4, 2026
+
+The operator froze an accepted local archive with hash `2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670` after clean compile and controlled tests. Battery-only LOW BATTERY warning is based on valid measured pack voltage, not uncalibrated EST:%. Candidate: **≤3.70V held 15s** activates; **≥3.80V held 30s** clears. This is an operator alert, **not** an automatic low-voltage cutoff.
+
+Test evidence: synthetic state-machine 12/12 PASS; visual simulation and clearing on HOME/OUTPUT MODE/TARGETS PASS; normal USB-only 3B controls/ACK/SNAPSHOT/RESCAN/STOP PASS; 15-minute LiPo-only mixed UI/scan test (3.83V→3.78V, no false alert or unusual heat) PASS. Two separate Ruko R111S captures decoded **1,012 and 961 validated RID packets**, with T01 ACTIVE/VALID and continuous BLE scan windows. Manually supplied receiver reference produced RADAR READY; a READY→ACQUIRING→READY transient was recorded, exact prerequisite pending investigation. Operator saw **no STALE or LOST** while aircraft remained powered; forced transmitter-off lifecycle was not tested in this stage. Actual low-cell alert threshold, calibrated battery capacity, direct cell temperature, end-of-charge termination, GNSS and Wi-Fi remain open.
+
+Source is still stored locally on the operator's Kali VM, not on GitHub. See [baseline freeze](docs/BASELINES.md), [test evidence](docs/VALIDATION.md), and [Issue #7](https://github.com/Forgedin3D/cybersecurit-hub-rid01/issues/7).
 
 ## Hardware and tools
 
