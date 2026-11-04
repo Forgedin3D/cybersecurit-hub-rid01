@@ -10,7 +10,7 @@
 | STAGE1B-D4G | 2026-10-23 | STOP/HOME hardening | `3a28f08f51f42046e673d69a81073c95fdb63629ef35e3d5540d04067cdc415b` | Accepted rollback |
 | **STAGE1B-D4H** | **2026-10-29** | Cold-boot operator acknowledgment + historical reset acceptance | **`7bdb2be698c63aba895e5b892f29478f8e215807126eb155bac9abd8fcabbfcf`** | **Accepted historical local working source and frozen snapshot; later RESET qualification applies** |
 | BAT-D4B | 2026-10-30 | Voltage/source power header | `f26d860255f933de068c71b4ce8960187cbcad6ffa634ed051c8fd0277eba3ea` | Frozen accepted source |
-| BAT-D4C | 2026-10-30 | Startup cell-temperature limitation and charging-safety notice | `5a55a5d9fe0b95ecf4943199793fbdba87016ca10d1fa138dfb8e314e` | Frozen accepted source |
+| BAT-D4C | 2026-10-30 | Startup cell-temperature limitation and charging-safety notice | `5a55a5d9fe0b95ecf4943199793fbdba87016ca10d1fa5bf12ea138dfb8e314e` | Frozen accepted source |
 | **BAT-D4D-R2** | **2026-10-31** | **Estimated SOC, measured voltage and power state across HOME/PRIVACY/LIVE views** | **`a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e`** | **Newest accepted/frozen source; physically flashed/restored on 2026-11-04** |
 
 ## Current local acceptance files (Kali VM)
