@@ -63,6 +63,29 @@ D4H-B clean compilation: **PASS**, Arduino ESP32 core 3.3.11; sketch 689,543 byt
 
 Earlier standalone ESP32-2432S028R functional acceptance documented 2026-10-12 includes: 12-minute two-target endurance (13 windows, 71,427 BLE callbacks, 9,438 validated RID packets), five-minute no-target rejection (25,904 ambient BLE callbacks and zero validated RID), and four-target lifecycle/reacquisition (124.920 sec, three windows, 11,540 BLE callbacks, 1,986 validated RID packets, zero allocation failures). **These statistics belong to CYD1 and must not be presented as Waveshare D4H results.**
 
+## BAT-D4E-3D real-aircraft BLE validation (2026-11-04)
+
+Two operator-run, redacted serial monitor captures on **BAT-D4E-3B TEST_ONLY**, real Ruko R111S, USB-only Waveshare (LiPo disconnected):
+
+| Evidence | Test 1: TARGETS focused | Test 2: RADAR focused |
+| --- | --- | --- |
+| Approximate capture duration | 2m39s (timer field prefix truncated) | 153,802ms (~2m34s) |
+| Continuous BLE scan windows | 3 | 3 |
+| Validated cooperative RID packets | **1,012** | **961** (type-total cross-check) |
+| Packet types: BASIC / LOCATION / SYSTEM / OPERATOR | 472 / 239 / 64 / 237 | 450 / 206 / 78 / 227 |
+| R111S T01 status | ACTIVE; reported VALID position | ACTIVE; reported VALID position |
+| RSSI among displayed target summaries | −60 to −52 dBm | −89 to −36 dBm (operator moved aircraft indoors) |
+| Valid receiver reference | Not entered | FIXED/VALID manual reference |
+| RADAR geographic readiness | Not evaluated | READY → ACQUIRING → READY |
+| UI operations | T01–T04, PRIVATE SNAPSHOT/RETURN, STOP/HOME | TARGETS/RADAR tabs, PRIVATE SNAPSHOT/RETURN, STOP/HOME |
+| Battery telemetry | USB=1 BAT=ABSENT consistently | USB=1 BAT=ABSENT consistently |
+
+**PASS** for real BLE decode, target allocation, continuous scan rollover and normal UI/STOP/HOME in these captures. RADAR readiness was observed but plot position, geographic freshness loss root cause and physical movement accuracy were not independently validated. R111S reported alternating GROUND/AIRBORNE flags while handled indoors; these are **broadcast values, not actual airborne proof**. Neither test switched the R111S off long enough to demonstrate STALE→LOST removal. No false low-battery indication with absent LiPo.
+
+Serial-output anomalies at the STOP footer: Test 1 final `Targets Tracked: 10` contradicts all repeated `Targets Tracked: 1`; Test 2's advertisement callback count line is concatenated with another field. Treat these footers as partially corrupted, not proof of phantom targets or receiver defects. Logs preserved locally; avoid raw identifiers and coordinates in repo.
+
+Combined message-type totals across both captures support **1,973 validated RID packets**, *not* a zero packet-loss guarantee. BAT-D4E-3B remains TEST_ONLY pending accepted-source freeze; actual voltage threshold activation, full-charge termination and GNSS/WiFi combined use remain outside these tests.
+
 ## Open / pending validation
 
 - Further quantified packet/loss and continuous-full-load R111S regression; mixed-mode 45min endurance on R2 passed, not a full battery depletion/lifetime measurement.
