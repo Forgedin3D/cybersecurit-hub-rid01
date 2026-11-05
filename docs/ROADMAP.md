@@ -14,6 +14,8 @@ Status updated: **2026-11-04** (historical October 29 baseline retained below). 
 
 - [x] BAT-D4E-3B voltage-based operator LOW BATTERY warning **provisional source freeze** (2026-11-04): SHA `2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670`; compiled, 12/12 simulated FSM, physical display UI sim, USB-only controls, healthy-voltage LiPo run, live R111S decode. Actual low-voltage trigger, calibrated SOC and charging termination remain open.
 
+- [x] Historical **CYD1 2026-10-12 reference-source reconstruction** completed 2026-11-04: accepted source and key intermediate builds SHA-verified and imported with selected metadata-cleaned photographs, original test-log-reconciled validation, troubleshooting case study and provenance. This is a **retrospective Git import**, not a CYD1 reflash or retest.
+
 ## V1 required capabilities and sequence (operator-approved order, 2026-11-04)
 
 1. **Pre-GNSS battery closeout** — provisional low-voltage warning BAT-D4E-3B has now been acceptance-frozen with source SHA; finalize battery operator guidance, charger/temperature residual-risk register and optional manual-reference loss test. Keep true SOC, low-voltage physical activation and full-charge termination OPEN for later controlled qualification. 45-min R2 and 15-min 3B battery-only mixed-use tests passed; neither proves total capacity/runtime, GNSS-loaded runtime or full-charge safety.

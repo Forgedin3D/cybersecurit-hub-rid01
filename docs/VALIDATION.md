@@ -61,6 +61,8 @@ D4H-B clean compilation: **PASS**, Arduino ESP32 core 3.3.11; sketch 689,543 byt
 
 ## CYD1 earlier reference platform (different hardware, not D4H)
 
+**Curated 2026-11-04 source and evidence import:** See [CYD1 acceptance matrix](validation/CYD1.md) for the October 12 original serial-log-reconciled tests and distinctions from report-only historical claims. [Accepted CYD1 sketch](../firmware/cyd1/reference/CYD1_RID_Handheld/CYD1_RID_Handheld.ino) SHA-256 `a76f5a9cf94899af528b5bcdace01e2bb7207ed3ecf3f4690f8d63ee9516525c`. Historical CYD1 metrics must never be attributed to later Waveshare firmware.
+
 Earlier standalone ESP32-2432S028R functional acceptance documented 2026-10-12 includes: 12-minute two-target endurance (13 windows, 71,427 BLE callbacks, 9,438 validated RID packets), five-minute no-target rejection (25,904 ambient BLE callbacks and zero validated RID), and four-target lifecycle/reacquisition (124.920 sec, three windows, 11,540 BLE callbacks, 1,986 validated RID packets, zero allocation failures). **These statistics belong to CYD1 and must not be presented as Waveshare D4H results.**
 
 ## BAT-D4E-3B provisional firmware acceptance freeze (2026-11-04)

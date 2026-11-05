@@ -13,6 +13,12 @@ Documented sources include:
 
 The above historical documents and source artifacts have **not been imported wholesale** into this repository. They may include information that requires privacy review. Descriptions and acceptance status in this repository are based on those records; no claimed tests were performed by GitHub itself.
 
+## CYD1 historical import — November 4, 2026
+
+The private repository now contains the SHA-verified original CYD1 Stage 4B-B2C accepted sketch (SHA-256 `a76f5a9cf94899af528b5bcdace01e2bb7207ed3ecf3f4690f8d63ee9516525c`), selected intermediate source stages and nine metadata-cleaned photographic derivatives. The original CYD1 engineering report and two October 12 serial logs were used for [documented validation](validation/CYD1.md); other tests are explicitly identified as report-only. This is a November **reconstruction import**, not original October Git commit history.
+
+Original unredacted photos, their GPS EXIF, untouched logs, and device factory firmware backups remain private and are not published. The imported source was AI-assisted, with real equipment, tests and acceptance directed by the project operator. Dependencies are named and linked, not vendored. No public license or certification is implied.
+
 ## Who did what
 
 - **Project owner/operator:** Hardware assembly, purchasing/selection, controlled tests, observation, physical acceptance, release/freeze decisions, and local command execution.
@@ -25,7 +31,7 @@ Do not describe AI-generated patch assistance or third-party software as indepen
 
 - **Accepted:** Named frozen source with recorded hash and completed acceptance tests.
 - **Operator-reported test:** Test output/log/photo supplied from a real test; no independent access to the board unless explicitly stated.
-- **Planned:** Hardware or feature not yet implemented/validated (Wi-Fi Beacon, onboard LC76G GNSS, battery operation).
+- **Planned:** Hardware or feature not yet implemented/validated (Wi-Fi Beacon and onboard LC76G GNSS; battery safety qualification remains incomplete despite functional battery operation).
 - **Research:** Technical feasibility hypothesis only; not proof of operation.
 
 ## Public sharing

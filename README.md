@@ -4,7 +4,15 @@
 
 An independently tested touchscreen **passive cooperative Remote ID receiver** built on a Waveshare ESP32-S3-Touch-LCD-3.5 Rev2.0. The existing firmware processes **Bluetooth Low Energy (BLE) Remote ID** data, manages multiple targets and lifecycle states, and displays coordinate-derived geographic context. **2.4 GHz Wi-Fi Beacon Remote ID and onboard GNSS are V1 requirements still under development.**
 
-> **Engineering status (2026-11-04):** Newest *provisionally accepted, physically installed and source-frozen* local candidate: **BAT-D4E-3B low-voltage operator warning**, SHA-256 `2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670`. It passed USB-only controls, 15-minute LiPo-only healthy-voltage operation, simulated voltage warning state/display, and two real R111S BLE capture regressions. The low-voltage trigger thresholds and charger termination have **not** been physically qualified. Previous accepted BAT-D4D-R2 (`a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e`) remains frozen rollback; older working master `.ino` still reflects historical D4H. Repository remains **documentation-only; firmware source not yet imported or privacy/license audited**.
+> **Engineering status (2026-11-04):** Newest *provisionally accepted, physically installed and source-frozen* local candidate: **BAT-D4E-3B low-voltage operator warning**, SHA-256 `2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670`. It passed USB-only controls, 15-minute LiPo-only healthy-voltage operation, simulated voltage warning state/display, and two real R111S BLE capture regressions. The low-voltage trigger thresholds and charger termination have **not** been physically qualified. Previous accepted BAT-D4D-R2 (`a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e`) remains frozen rollback; older working master `.ino` still reflects historical D4H. The **historical CYD1 firmware and sanitized selected photographs are now imported**. The current Waveshare firmware remains archived **on Kali only**, not yet imported or cleared for public release.
+
+## From CYD1 to Waveshare — historical origin (2026)
+
+RID-01 began on the **ESP32-2432S028R (CYD1)**, where the BLE Remote ID decoder, four-slot lifecycle engine, touch UI, PRIVATE/OPEN controls and continuous scanning were validated **October 12, 2026**. The accepted CYD1 source and curated historical photographic evidence have now been reconstructed for this private repository. The Waveshare RADAR, GNSS and battery stages came afterward.
+
+![Original CYD1 HOME / BEGIN TEST screen](assets/cyd1/home-begin.jpg)
+
+Read the [CYD1 history](docs/history/CYD1.md), [acceptance evidence](docs/validation/CYD1.md), [integration compile-fix case study](docs/history/CYD1-B2A-compile-fix.md), and [firmware directory](firmware/cyd1/README.md). Historical test dates are **not** represented as original Git commit dates.
 
 ## Current validated behavior
 

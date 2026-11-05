@@ -1,10 +1,10 @@
 # Firmware baseline and acceptance register
 
-**Record status:** Based on user-reported command outputs, verified SHA-256 comparisons performed on the Kali VM, engineering handoffs, and physical test reports through 2026-11-04. These records are **not a substitute for possessing the binary/source artifact in GitHub**.
+**Record status:** Based on user-reported command outputs, verified SHA-256 comparisons performed on the Kali VM, engineering handoffs, and physical test reports through 2026-11-04. **CYD1 historical source** is now present in GitHub after byte-level verification; **Waveshare source** remains local to Kali and is not supplied by this repository.
 
 | Stage | Date | Scope | SHA-256 | Status |
 | --- | --- | --- | --- | --- |
-| CYD1 Stage 4B-B2C | 2026-10-12 | Earlier ESP32-2432S028R functional receiver reference | Not entered here; consult CYD1 full technical record | Accepted reference platform |
+| **CYD1 Stage 4B-B2C** | **2026-10-12** | Original ESP32-2432S028R BLE reference firmware | **`a76f5a9cf94899af528b5bcdace01e2bb7207ed3ecf3f4690f8d63ee9516525c`** | **Accepted in October; SHA-verified historical source imported to `firmware/cyd1/` on 2026-11-04** |
 | STAGE1B-D4E | 2026-10-21 | Waveshare RADAR lifecycle visibility | `dee2136cdac5b58d438d4ddaa068816d263e4df090638ecffcbd59dc46117860` | Accepted historical snapshot |
 | STAGE1B-D4F | 2026-10-23 | RADAR right-panel ACTIVE/STALE labels | `166f7f32ca92de4e2858b9e490873c132a59310a5c88478a54df180a3ba64e67` | Accepted historical snapshot |
 | STAGE1B-D4G | 2026-10-23 | STOP/HOME hardening | `3a28f08f51f42046e673d69a81073c95fdb63629ef35e3d5540d04067cdc415b` | Accepted rollback |
@@ -82,4 +82,4 @@ Five operator-performed tests **PASS**: (A) cold startup notice; (B) RESET befor
 6. Freeze source plus SHA-256 and acceptance report **only after** acceptance.
 7. Do not misrepresent Git commits as evidence of historical commits: earlier milestones were developed offline, before this repository existed.
 
-GitHub contributions begin with documentation on 2026-10-29. Local source has not yet been audited or imported into this repository.
+GitHub contributions began with documentation on 2026-10-29. The audited **CYD1 accepted reference and selected historical snapshots** were imported on 2026-11-04. Waveshare accepted firmware remains local and not imported. See [CYD1 manifest](history/CYD1-MANIFEST.md); the Git commit date is not the historical test date.
