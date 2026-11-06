@@ -1,0 +1,40 @@
+--- RID_UI_Migration.ino.STAGE1B-D4E-RADAR-LIFECYCLE-VISIBILITY-ACCEPTED-2026-10-21
++++ RID_UI_Migration.ino.STAGE1B-D4F-RADAR-LIFECYCLE-LABELS-ACCEPTED-2026-10-23
+@@ -8331,6 +8331,37 @@
+         }
+ 
+ 
++        // ----------------------------------------------------
++        // RADAR right-panel lifecycle label.
++        // UI-only: use existing backend state.
++        // No change to geographic plotting or lifecycle.
++        // ----------------------------------------------------
++
++        if (
++            snapshot.stateCode == 1
++            ||
++            snapshot.stateCode == 2
++        ) {
++
++            wsGfx->setTextColor(
++                snapshot.stateCode == 1
++                ? GREEN
++                : YELLOW
++            );
++
++            wsGfx->setCursor(
++                414,
++                rowY
++            );
++
++            wsGfx->print(
++                snapshot.stateCode == 1
++                ? "ACTIVE"
++                : "STALE"
++            );
++        }
++
++
+         WSRadarTargetSolution solution;
+ 
+ 

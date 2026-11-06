@@ -1,0 +1,372 @@
+{
+  "staged_date": "2026-11-06",
+  "photos": [
+    {
+      "source": "IMG_3923.JPEG",
+      "source_sha256": "f725d869bdc5c5dccabf85fdb7f8cef73713d7ea4e133d96ad72ac5971ae2bb9",
+      "source_camera_date": "2026-10-20",
+      "output_sha256": "3ce0ee9d7c4d2f190718fbe3548b71ebba497096e60db6cc4b4252d134438b1d",
+      "bytes": 425677,
+      "crop_original_oriented_pixels": [
+        0,
+        80,
+        1536,
+        1220
+      ],
+      "tier": "Primary",
+      "caption": "Early centered scope; synthetic fixture",
+      "exif_xmp_iptc_icc_absent": true,
+      "previous_staging_path": "photos/01-early-crowded-radar--IMG_3923.jpg",
+      "path": "assets/waveshare/IMG_3923-sanitized.jpg"
+    },
+    {
+      "source": "IMG_3926.JPEG",
+      "source_sha256": "64d848b8c8100e22e28989cddf01cca84f3a0eaa57c1d051f1f1a7a97b8a24a5",
+      "source_camera_date": "2026-10-20",
+      "output_sha256": "91519e1856ea6ab07218b47da072fdc1d8f312cdfc3f45c4a4c0b948a477964b",
+      "bytes": 485954,
+      "crop_original_oriented_pixels": [
+        0,
+        430,
+        1536,
+        1600
+      ],
+      "tier": "Primary",
+      "caption": "Larger left scope; synthetic fixture",
+      "exif_xmp_iptc_icc_absent": true,
+      "previous_staging_path": "photos/02-split-panel-intermediate--IMG_3926.jpg",
+      "path": "assets/waveshare/IMG_3926-sanitized.jpg"
+    },
+    {
+      "source": "IMG_3938.JPEG",
+      "source_sha256": "18ef0c1b01e201f613026e4c6c60f27d645ab0431871d3d1fab242925fbca101",
+      "source_camera_date": "2026-10-20",
+      "output_sha256": "082180882dbf7ca8e2369ae8805e15b862a0a8f22eef2e29c5d93627bf2509bb",
+      "bytes": 428271,
+      "crop_original_oriented_pixels": [
+        0,
+        350,
+        1536,
+        1420
+      ],
+      "tier": "Primary",
+      "caption": "Three rings + READY; synthetic fixture",
+      "exif_xmp_iptc_icc_absent": true,
+      "previous_staging_path": "photos/03-refined-synthetic-radar--IMG_3938.jpg",
+      "path": "assets/waveshare/IMG_3938-sanitized.jpg"
+    },
+    {
+      "source": "IMG_3956.JPEG",
+      "source_sha256": "43f1e4e5abe4d87b5e4442fb091180b54114e841a1a2150ffc7059e9d0aaee4b",
+      "source_camera_date": "2026-10-21",
+      "output_sha256": "02eaded88122e97c1bd3a7214413a987a4f8ebbeff559136635cb416d27c00e9",
+      "bytes": 347531,
+      "crop_original_oriented_pixels": [
+        0,
+        400,
+        1536,
+        1380
+      ],
+      "tier": "Primary",
+      "caption": "One plot with extra NO FRESH GEO rows",
+      "exif_xmp_iptc_icc_absent": true,
+      "previous_staging_path": "photos/04-extra-no-geo-rows--IMG_3956.jpg",
+      "path": "assets/waveshare/IMG_3956-sanitized.jpg"
+    },
+    {
+      "source": "IMG_3957.JPEG",
+      "source_sha256": "097e1d540413f10e940416616b61905ac685ea5866076f6067243d2c2813d301",
+      "source_camera_date": "2026-10-21",
+      "output_sha256": "02987225bf5f4118dc0d903b38b10d43faa70d7518316f032facd9fdad36d5c0",
+      "bytes": 508820,
+      "crop_original_oriented_pixels": [
+        0,
+        190,
+        1536,
+        1430
+      ],
+      "tier": "Primary",
+      "caption": "One geographic row; unused rows absent",
+      "exif_xmp_iptc_icc_absent": true,
+      "previous_staging_path": "photos/05-single-target-cleanup--IMG_3957.jpg",
+      "path": "assets/waveshare/IMG_3957-sanitized.jpg"
+    },
+    {
+      "source": "IMG_4012.JPEG",
+      "source_sha256": "9077544d2726b6ba4147ffb30834748e3388499160a662deb409f6ae993be66d",
+      "source_camera_date": "2026-10-27",
+      "output_sha256": "39400a4628b3a8e5cdf574e5e3cec27461294ca04161db24f01143c470799714",
+      "bytes": 711376,
+      "crop_original_oriented_pixels": null,
+      "tier": "Primary",
+      "caption": "R111S + beacon setup; two ACTIVE, one plot",
+      "exif_xmp_iptc_icc_absent": true,
+      "previous_staging_path": "photos/07-r111s-beacon-rig--IMG_4012.jpg",
+      "path": "assets/waveshare/IMG_4012-sanitized.jpg"
+    },
+    {
+      "source": "IMG_4181.JPEG",
+      "source_sha256": "50472f7d59f70a38a4111b9d27eb8313f101d96748cd176f3d89654216197063",
+      "source_camera_date": "2026-10-30",
+      "output_sha256": "3e03272dac1271a08bd7389166ca3f36f291b0be3fcab4cefd5377674b4cdff9",
+      "bytes": 566587,
+      "crop_original_oriented_pixels": [
+        0,
+        330,
+        1536,
+        1380
+      ],
+      "tier": "Supplement",
+      "caption": "Supplement: CHG header with USB + LiPo",
+      "exif_xmp_iptc_icc_absent": true,
+      "previous_staging_path": "photos/10-charging-header--IMG_4181.jpg",
+      "path": "assets/waveshare/IMG_4181-sanitized.jpg"
+    },
+    {
+      "source": "IMG_4182.JPEG",
+      "source_sha256": "284ff044872c57bca2c00c1fdb9203ab6ab70d1558ba30bbb7c62412895e179d",
+      "source_camera_date": "2026-10-30",
+      "output_sha256": "586fa40ebe6fd33ac58ed91b6f0f1d0588721381f0a9bdf08f670b860253173e",
+      "bytes": 612802,
+      "crop_original_oriented_pixels": [
+        0,
+        410,
+        1536,
+        1600
+      ],
+      "tier": "Primary",
+      "caption": "Later BAT power header; SOC still withheld",
+      "exif_xmp_iptc_icc_absent": true,
+      "previous_staging_path": "photos/08-battery-power-radar--IMG_4182.jpg",
+      "path": "assets/waveshare/IMG_4182-sanitized.jpg"
+    },
+    {
+      "source_name": "IMG_3865.JPEG",
+      "source_batch": "historical",
+      "source_sha256": "a6e6dd84352983ddf5a035dfaa0f81698992ac336f2174403d978a29edda7fd4",
+      "camera_date_clue": "2026:10:18",
+      "tier": "primary",
+      "caption": "Historical UI shell; target-data wiring explicitly deferred",
+      "output_sha256": "1aaf699e79dc68ad3a3f719eb65d68377149ebdccf3cf0c40eb5c709cd90b5f9",
+      "output_bytes": 429895,
+      "crop_xyxy_in_oriented_source_pixels": [
+        50,
+        470,
+        1536,
+        1470
+      ],
+      "opaque_masks_xyxy_in_oriented_source_pixels": [],
+      "sanitization_note": "EXIF/GPS/XMP removed; display-focused crop and JPEG re-encoding only.",
+      "personal_metadata_check": "No EXIF/GPS/XMP detected in derivative.",
+      "previous_staging_path": "historical/primary/IMG_3865_review.jpg",
+      "path": "assets/waveshare/IMG_3865-sanitized.jpg"
+    },
+    {
+      "source_name": "IMG_3903.JPEG",
+      "source_batch": "historical",
+      "source_sha256": "51009703e75aa20fa43718c79689c2de8ecb36aabe60810d7ff6b3fe105b4288",
+      "camera_date_clue": "2026:10:19",
+      "tier": "primary",
+      "caption": "Historical refined LIVE target panel in PRIVATE mode",
+      "output_sha256": "3dddfb71a3bcaf70b0ef85a465d5921c6e77826d506cd0a7fa6e447f2f2d1c82",
+      "output_bytes": 452564,
+      "crop_xyxy_in_oriented_source_pixels": [
+        0,
+        375,
+        1536,
+        1535
+      ],
+      "opaque_masks_xyxy_in_oriented_source_pixels": [
+        [
+          620,
+          1135,
+          950,
+          1182
+        ]
+      ],
+      "sanitization_note": "Absolute-altitude telemetry values conservatively masked for sharing.",
+      "personal_metadata_check": "No EXIF/GPS/XMP detected in derivative.",
+      "previous_staging_path": "historical/primary/IMG_3903_review.jpg",
+      "path": "assets/waveshare/IMG_3903-sanitized.jpg"
+    },
+    {
+      "source_name": "IMG_4183.JPEG",
+      "source_batch": "historical",
+      "source_sha256": "a24001a7d38c36409c487c3743972447777b0acc24129f06987153ed492c546d",
+      "camera_date_clue": "2026:10:30",
+      "tier": "primary",
+      "caption": "Clean operator notice with battery-temperature warning",
+      "output_sha256": "4535e00f36ca52cd88016b05291b8691558b13c8f5d70e05db9bbfa48697bf2a",
+      "output_bytes": 578689,
+      "crop_xyxy_in_oriented_source_pixels": [
+        70,
+        480,
+        1536,
+        1560
+      ],
+      "opaque_masks_xyxy_in_oriented_source_pixels": [],
+      "sanitization_note": "EXIF/GPS/XMP removed; display-focused crop and JPEG re-encoding only.",
+      "personal_metadata_check": "No EXIF/GPS/XMP detected in derivative.",
+      "previous_staging_path": "historical/primary/IMG_4183_review.jpg",
+      "path": "assets/waveshare/IMG_4183-sanitized.jpg"
+    },
+    {
+      "source_name": "IMG_4226.JPEG",
+      "source_batch": "historical",
+      "source_sha256": "43ff8e46fd81427459981b1f0a0e4c16dc72663f2cf652eccb033eb922add838",
+      "camera_date_clue": "2026:11:04",
+      "tier": "primary",
+      "caption": "SIM 3.69V / LOW BATTERY on SELECT OUTPUT MODE",
+      "output_sha256": "3fa924ff5cbb2ada742991c74309c78332e76993973823ca8f72f678b7124ad1",
+      "output_bytes": 483164,
+      "crop_xyxy_in_oriented_source_pixels": [
+        80,
+        220,
+        1536,
+        1450
+      ],
+      "opaque_masks_xyxy_in_oriented_source_pixels": [],
+      "sanitization_note": "EXIF/GPS/XMP removed; display-focused crop and JPEG re-encoding only.",
+      "personal_metadata_check": "No EXIF/GPS/XMP detected in derivative.",
+      "previous_staging_path": "historical/primary/IMG_4226_review.jpg",
+      "path": "assets/waveshare/IMG_4226-sanitized.jpg"
+    },
+    {
+      "source_name": "IMG_4286.JPEG",
+      "source_batch": "current",
+      "source_sha256": "3575cbae3ec41fa26b1b1443550ebed5b759bbf5cef89c7f1497d5b443dc1dfa",
+      "camera_date_clue": "2026:11:06",
+      "tier": "primary",
+      "caption": "New HOME view: visible LiPo and estimated battery header",
+      "output_sha256": "7a3b4b2cc99b3af1a79b7e055f47a7cb448168b02fc9263a4c8a9f1b786886d2",
+      "output_bytes": 915213,
+      "crop_xyxy_in_oriented_source_pixels": [
+        110,
+        240,
+        1510,
+        1710
+      ],
+      "opaque_masks_xyxy_in_oriented_source_pixels": [],
+      "sanitization_note": "EXIF/GPS/XMP removed; display-focused crop and JPEG re-encoding only.",
+      "personal_metadata_check": "No EXIF/GPS/XMP detected in derivative.",
+      "previous_staging_path": "current/primary/IMG_4286_review.jpg",
+      "path": "assets/waveshare/IMG_4286-sanitized.jpg"
+    },
+    {
+      "source_name": "IMG_4292.JPEG",
+      "source_batch": "current",
+      "source_sha256": "c53f1d60c63f94775066ee043f4c9b8a89e1baa28739b9becfafd10f14d6ecf9",
+      "camera_date_clue": "2026:11:06",
+      "tier": "primary",
+      "caption": "New PRIVATE target snapshot; firmware-redacted ID/position",
+      "output_sha256": "78fe2dcf051c90b3119d5adde57af710647edbc224eda2935c883a1164055c66",
+      "output_bytes": 888741,
+      "crop_xyxy_in_oriented_source_pixels": [
+        110,
+        240,
+        1510,
+        1710
+      ],
+      "opaque_masks_xyxy_in_oriented_source_pixels": [
+        [
+          420,
+          1084,
+          745,
+          1128
+        ]
+      ],
+      "sanitization_note": "Altitude row conservatively masked for sharing; firmware ID and position redactions preserved.",
+      "personal_metadata_check": "No EXIF/GPS/XMP detected in derivative.",
+      "previous_staging_path": "current/primary/IMG_4292_review.jpg",
+      "path": "assets/waveshare/IMG_4292-sanitized.jpg"
+    },
+    {
+      "source_name": "IMG_4293.JPEG",
+      "source_batch": "current",
+      "source_sha256": "8367cb981d4b4881fc52cff0a3c7bbec5285c346f107619409f6ac68a8e0f431",
+      "camera_date_clue": "2026:11:06",
+      "tier": "primary",
+      "caption": "New OPEN snapshot; sharing-redacted fields",
+      "output_sha256": "a33fe638cdb38ca1006866efedac8eaaaac541844d3576339aee6de84fd504e3",
+      "output_bytes": 872349,
+      "crop_xyxy_in_oriented_source_pixels": [
+        110,
+        240,
+        1510,
+        1710
+      ],
+      "opaque_masks_xyxy_in_oriented_source_pixels": [
+        [
+          420,
+          1095,
+          850,
+          1215
+        ]
+      ],
+      "sanitization_note": "Identifier, absolute position and altitude block masked for sharing; OPEN label deliberately retained.",
+      "personal_metadata_check": "No EXIF/GPS/XMP detected in derivative.",
+      "previous_staging_path": "current/primary/IMG_4293_review.jpg",
+      "path": "assets/waveshare/IMG_4293-sanitized.jpg"
+    },
+    {
+      "source_name": "IMG_4295.JPEG",
+      "source_batch": "current",
+      "source_sha256": "57bf400c243df6a42a27f5186813ff6d7ea5c1e32c22ded9743a44baede23f27",
+      "camera_date_clue": "2026:11:06",
+      "tier": "primary",
+      "caption": "New four ACTIVE rows, one geographic plot, FIXED reference",
+      "output_sha256": "59daadf400cb40d4c6418cd4e47ae849286e42ca8226677acc0eb9602a457e74",
+      "output_bytes": 847333,
+      "crop_xyxy_in_oriented_source_pixels": [
+        110,
+        240,
+        1510,
+        1710
+      ],
+      "opaque_masks_xyxy_in_oriented_source_pixels": [],
+      "sanitization_note": "EXIF/GPS/XMP removed; display-focused crop and JPEG re-encoding only.",
+      "personal_metadata_check": "No EXIF/GPS/XMP detected in derivative.",
+      "previous_staging_path": "current/primary/IMG_4295_review.jpg",
+      "path": "assets/waveshare/IMG_4295-sanitized.jpg"
+    }
+  ],
+  "videos": [
+    {
+      "path": "assets/waveshare/IMG_3969-lifecycle-silent.mp4",
+      "sha256": "2679a098084f1907f975a0ac3eeb00bd7db4df31f0ced197eb2c11fdeee82a58",
+      "bytes": 4963654,
+      "caption": "Historical plot expiry then row removal; clip time is not last-packet age.",
+      "duration_seconds": "18.718700",
+      "has_audio": false,
+      "location_tags_detected": false,
+      "source_name": "IMG_3969.MP4",
+      "source_sha256": "0f722ccbe09cbf0b0f8b494013adced7f480879366fd916a27886c0ff4c59e3d",
+      "prior_derivative_sha256": "2679a098084f1907f975a0ac3eeb00bd7db4df31f0ced197eb2c11fdeee82a58"
+    },
+    {
+      "path": "assets/waveshare/IMG_3986-active-stale-hidden-silent.mp4",
+      "sha256": "eae002b8a18696e649ae9841d6e784cb3dce59784ad65a233efa9bc39b764fce",
+      "bytes": 2835780,
+      "caption": "Historical ACTIVE to STALE to row hidden; later firmware labels.",
+      "duration_seconds": "11.144467",
+      "has_audio": false,
+      "location_tags_detected": false,
+      "source_name": "IMG_3986.MP4",
+      "source_sha256": "29bd9999b1595adc5036625cafafd9e7c5e2b22ee38baea03d020a43cbb9ac78",
+      "prior_derivative_sha256": "eae002b8a18696e649ae9841d6e784cb3dce59784ad65a233efa9bc39b764fce"
+    },
+    {
+      "path": "assets/waveshare/IMG_4224-SIM-low-battery-silent.mp4",
+      "sha256": "b60fc9acde5b11254fc3385be45a7d65e388c741ece9a3ef76e909b1e17185dc",
+      "bytes": 3058970,
+      "caption": "Explicit SIM display test only; not real cell depletion.",
+      "duration_seconds": "10.777433",
+      "has_audio": false,
+      "location_tags_detected": false,
+      "source_name": "IMG_4224.MP4",
+      "source_sha256": "308518ca0108d3ab34fa57ad0f87dced0488cac681b7c4862f8d4c9185f8de48",
+      "prior_derivative_sha256": "b60fc9acde5b11254fc3385be45a7d65e388c741ece9a3ef76e909b1e17185dc"
+    }
+  ],
+  "scope": "Personal metadata cleaned; photos separately inspected; originals are private and untouched. Full-speed final video/owner review remains."
+}

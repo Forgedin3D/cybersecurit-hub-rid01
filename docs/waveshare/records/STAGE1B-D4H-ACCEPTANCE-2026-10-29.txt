@@ -1,0 +1,43 @@
+RID-01 — STAGE1B-D4H ACCEPTANCE RECORD
+Date: 2026-10-29
+Milestone: Cold-Boot Operator Acknowledgment
+Status: ACCEPTED — FEATURE SCOPE
+
+Accepted source SHA256:
+7bdb2be698c63aba895e5b892f29478f8e215807126eb155bac9abd8fcabbfcf
+
+Baseline:
+D4G STOP/HOME HARDENING — ACCEPTED 2026-10-23
+
+Firmware validation:
+- Isolated D4H-A generation: PASS
+- D4H-B reset gate hardening: PASS
+- D4H-B clean compilation: PASS
+- D4G rollback source protected: PASS
+
+Operator-reported hardware tests:
+A. Cold startup notice: PASS
+B. RESET before acknowledgment: PASS
+C. RESET after acknowledgment: PASS
+D. START and STOP/HOME: PASS
+E. Second cold startup: PASS
+
+Observed behavior:
+- Cold power-on requires acknowledgment.
+- Unacknowledged hardware RESET retains the gate.
+- Acknowledged hardware RESET returns to HOME.
+- STOP/HOME does not redisplay notice.
+- BLE scanning requires the startup gate to be satisfied.
+
+Test environment:
+- Waveshare ESP32-S3-Touch-LCD-3.5 Rev2.0
+- USB-powered testing
+- Arduino ESP32 core 3.3.11
+
+Scope limitations:
+- Full live Remote ID packet regression not repeated for D4H.
+- Battery-powered cold startup not yet tested.
+- GNSS integration not yet tested.
+- Notice is informational, not a legal liability waiver.
+
+D4G accepted backup remains unchanged.

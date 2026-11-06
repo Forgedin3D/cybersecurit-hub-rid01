@@ -1,0 +1,46 @@
+{
+  "status": "PASS",
+  "time_utc": "20261106T163916628612Z",
+  "source_sha256": "2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670",
+  "fqbn": "esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CPUFreq=240",
+  "cli_version": "arduino-cli  Version: 1.5.1 Commit: 1.5.1-4 Date: 2026-08-15T07:48:49Z",
+  "core_list": "ID          Installed Latest Name\nesp32:esp32 3.3.11    3.3.11 esp32",
+  "dependency_files_checked": 539,
+  "compile_exit_code": 0,
+  "original_source_and_dependency_hashes_unchanged": true,
+  "built_artifact_hashes": [
+    {
+      "name": "RID_UI_Migration.ino.bin",
+      "bytes": 691664,
+      "sha256": "ab567bf74adf7ed05d7cd9e660657c3a2d1942f5496fe854756fdbee195d525c"
+    },
+    {
+      "name": "RID_UI_Migration.ino.bootloader.bin",
+      "bytes": 19968,
+      "sha256": "31b3c1be45dc5a76aa85c82540d6787b675e711eaf11021a5eea7e36f469c6de"
+    },
+    {
+      "name": "RID_UI_Migration.ino.elf",
+      "bytes": 17005568,
+      "sha256": "776066b6f8074bbf024bf652a4d466824c127e9d13d141330d4935a0b7137d67"
+    },
+    {
+      "name": "RID_UI_Migration.ino.map",
+      "bytes": 12215857,
+      "sha256": "f94f3de7c5bd0f6ee8fc45c6026d46bf921f68f7f840b9e855b4bf5973c94863"
+    },
+    {
+      "name": "RID_UI_Migration.ino.merged.bin",
+      "bytes": 16777216,
+      "sha256": "2c18d00586b3e1b6cc9e9bef678079490190570e2d87af7f618a2d1a70bb9456"
+    },
+    {
+      "name": "RID_UI_Migration.ino.partitions.bin",
+      "bytes": 3072,
+      "sha256": "ace02503447d0f470692e65fa76002f2d77a92dc81cd3813d8aa66718d716da9"
+    }
+  ],
+  "hardware_upload": false,
+  "hardware_retest": false,
+  "interpretation": "Fresh compile from isolated copies; not reproducible-binary equality or hardware acceptance."
+}

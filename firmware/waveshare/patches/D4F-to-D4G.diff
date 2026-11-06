@@ -1,0 +1,41 @@
+--- RID_UI_Migration.ino.STAGE1B-D4F-RADAR-LIFECYCLE-LABELS-ACCEPTED-2026-10-23
++++ RID_UI_Migration.ino.STAGE1B-D4G-STOP-HOME-HARDENING-ACCEPTED-2026-10-23
+@@ -3785,6 +3785,11 @@
+         // Bluedroid does not need to fire the completion
+         // callback for our firmware to finish the session.
+         scanCompletePending = true;
++    }
++    else {
++        // Stop request failed; allow continued
++        // scanning and another operator attempt.
++        scanStopRequested = false;
+     }
+ 
+     return stopped;
+@@ -5149,7 +5154,13 @@
+ 
+         case BTN_STOP:
+             if (scanSessionActive) {
+-                requestStopRIDScan();
++                if (!requestStopRIDScan()) {
++                    Serial.println(
++                        "[UI ERROR] STOP failed; session remains active."
++                    );
++                    redraw = false;
++                    break;
++                }
+             }
+             currentScreen = SCREEN_HOME;
+             Serial.println("ACTION: STOP / HOME");
+@@ -10047,6 +10058,11 @@
+                     Serial.println(
+                         "[UI ERROR] STOP request failed."
+                     );
++
++                    // Remain on live view after failed STOP.
++                    wsUiSessionStarted = scanSessionActive;
++                    redraw = false;
++                    break;
+                 }
+             }
+ 

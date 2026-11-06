@@ -1,0 +1,3 @@
+PASS 23/23 host warning assertions
+Source SHA256: 2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670
+HOST LOGIC ONLY: not an ESP32 compile, ADC test, runtime timing or battery safety qualification.
