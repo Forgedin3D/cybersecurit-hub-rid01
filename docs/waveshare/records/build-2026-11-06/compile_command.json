@@ -1,0 +1,20 @@
+[
+  "/usr/bin/arduino-cli",
+  "--config-file",
+  "<isolated-work>/arduino-cli.yaml",
+  "--no-color",
+  "compile",
+  "--clean",
+  "--verbose",
+  "--fqbn",
+  "esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CPUFreq=240",
+  "--libraries",
+  "<isolated-work>/libraries",
+  "--build-path",
+  "<isolated-work>/build",
+  "--output-dir",
+  "<isolated-work>/artifacts",
+  "--jobs",
+  "2",
+  "<isolated-work>/sketch/RID_UI_Migration"
+]

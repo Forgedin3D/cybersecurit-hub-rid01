@@ -1,0 +1,78 @@
+{
+  "review_date": "2026-11-06",
+  "source_archive_sha256": "2f3b309d5bd02cb285d5b05f12b621cef9656b9e48444735ea22c2d32696bc78",
+  "records": [
+    {
+      "path": "firmware/waveshare/reference/RID_UI_Migration/RID_UI_Migration.ino",
+      "origin_archive_member": "Waveshare_RID_S3/RID_UI_Migration/RID_UI_Migration.ino.STAGE1B-BAT-D4E-3B-LOW-VOLTAGE-WARNING-PROVISIONAL-ACCEPTED-2026-11-04",
+      "bytes": 205457,
+      "sha256": "2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670",
+      "stage": "BAT-D4E-3B",
+      "role": "current provisional reference"
+    },
+    {
+      "path": "firmware/waveshare/history/BAT-D4D-R2.ino.txt",
+      "origin_archive_member": "Waveshare_RID_S3/RID_UI_Migration/RID_UI_Migration.ino.STAGE1B-BAT-D4D-R2-EST-ALL-SCREENS-ACCEPTED-2026-10-31",
+      "bytes": 202693,
+      "sha256": "a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e",
+      "stage": "BAT-D4D-R2",
+      "role": "accepted rollback"
+    },
+    {
+      "path": "firmware/waveshare/history/D4H-acknowledgment.ino.txt",
+      "origin_archive_member": "Waveshare_RID_S3/RID_UI_Migration/RID_UI_Migration.ino.STAGE1B-D4H-COLD-BOOT-ACK-ACCEPTED-2026-10-29",
+      "bytes": 194585,
+      "sha256": "7bdb2be698c63aba895e5b892f29478f8e215807126eb155bac9abd8fcabbfcf",
+      "stage": "D4H",
+      "role": "historical acknowledgment"
+    },
+    {
+      "path": "firmware/waveshare/history/D4E-radar-lifecycle.ino.txt",
+      "origin_archive_member": "Waveshare_RID_S3/RID_UI_Migration/RID_UI_Migration.ino.STAGE1B-D4E-RADAR-LIFECYCLE-VISIBILITY-ACCEPTED-2026-10-21",
+      "bytes": 189893,
+      "sha256": "dee2136cdac5b58d438d4ddaa068816d263e4df090638ecffcbd59dc46117860",
+      "stage": "D4E",
+      "role": "historical lifecycle visibility"
+    },
+    {
+      "path": "firmware/waveshare/history/D4D-D2C1-production.ino.txt",
+      "origin_archive_member": "Waveshare_RID_S3/RID_UI_Migration/RID_UI_Migration.ino.STAGE1B-D4D-D2C1-RADAR-TARGETS-PRODUCTION-ACCEPTED-2026-10-20",
+      "bytes": 181579,
+      "sha256": "b6bfd5de66b4d3879f116c1b58db0a9054d1d1dd42546c9a1c7f88c158ba6508",
+      "stage": "D4D-D2C1",
+      "role": "historical production geometry/UI"
+    },
+    {
+      "path": "firmware/waveshare/history/D3_1-live-targets.ino.txt",
+      "origin_archive_member": "Waveshare_RID_S3/RID_UI_Migration/RID_UI_Migration.ino.STAGE1B-D3.1-LIVE-TARGETS-ACCEPTED-2026-10-19",
+      "bytes": 152554,
+      "sha256": "0fa1acbeac72bc6ff8ba1bdb319116224caad88fe2d27d0ab381cdc364f93b7d",
+      "stage": "D3.1",
+      "role": "historical live data integration"
+    },
+    {
+      "path": "firmware/waveshare/history/landscape-touch.ino.txt",
+      "origin_archive_member": "Waveshare_RID_S3/RID_UI_Migration/RID_UI_Migration.ino.LANDSCAPE-TOUCH-VALIDATED-2026-10-18",
+      "bytes": 98708,
+      "sha256": "ba8c962a4cb43123bc2c55ee055763bcf6ccc592bd3e9512a18f13e384c603b9",
+      "stage": "landscape-touch",
+      "role": "historical landscape touch"
+    },
+    {
+      "path": "firmware/waveshare/fixtures/radar-synthetic-visual.ino.txt",
+      "origin_archive_member": "Waveshare_RID_S3/RID_UI_Migration/RID_UI_Migration.ino.STAGE1B-D4D-D2C1-RADAR-UI-VISUAL-ACCEPTED-SYNTHETIC-2026-10-20",
+      "bytes": 185749,
+      "sha256": "45d96a791a80ae4d8da91dcd933a74296fd882ba7f5ea11d36d81f019518a071",
+      "stage": "synthetic-layout",
+      "role": "historical synthetic fixture; NOT production"
+    },
+    {
+      "path": "firmware/waveshare/history/serial-hardening.ino.txt",
+      "origin_archive_member": "Waveshare_RID_S3/RID_Backend_SerialHardening/RID_Backend_SerialHardening.ino.S3-SERIAL-HARDENING-VALIDATED-2026-10-18",
+      "bytes": 93374,
+      "sha256": "1fe79ddf70d4f734c248e418ca040dd04a0dc50fddbad5d744a7d4de0c09e3d5",
+      "stage": "serial-hardening",
+      "role": "historical migration/transport"
+    }
+  ]
+}

@@ -1,0 +1,200 @@
+[
+  {
+    "archived_name": "RID_UI_Migration.ino",
+    "bytes": 194585,
+    "sha256": "7bdb2be698c63aba895e5b892f29478f8e215807126eb155bac9abd8fcabbfcf",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.LANDSCAPE-TOUCH-VALIDATED-2026-10-18",
+    "bytes": 98708,
+    "sha256": "ba8c962a4cb43123bc2c55ee055763bcf6ccc592bd3e9512a18f13e384c603b9",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.PRE-D4A-RADAR-GEO-2026-10-20",
+    "bytes": 152554,
+    "sha256": "0fa1acbeac72bc6ff8ba1bdb319116224caad88fe2d27d0ab381cdc364f93b7d",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.PRE-DISPLAY-2026-10-18",
+    "bytes": 93374,
+    "sha256": "1fe79ddf70d4f734c248e418ca040dd04a0dc50fddbad5d744a7d4de0c09e3d5",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.PRE-LIFECYCLE-LABELS-2026-10-23",
+    "bytes": 189893,
+    "sha256": "dee2136cdac5b58d438d4ddaa068816d263e4df090638ecffcbd59dc46117860",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.PRE-NAV-SHELL-2026-10-18",
+    "bytes": 98708,
+    "sha256": "ba8c962a4cb43123bc2c55ee055763bcf6ccc592bd3e9512a18f13e384c603b9",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.PRE-STOP-HOME-HARDENING-2026-10-23",
+    "bytes": 190659,
+    "sha256": "166f7f32ca92de4e2858b9e490873c132a59310a5c88478a54df180a3ba64e67",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.PRE-TOUCH-2026-10-18",
+    "bytes": 96574,
+    "sha256": "ee6728cfce18433d1b6e212672b05a2ced0b27696ceb5aa5e73b872baff17780",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.RAW-TOUCH-MAPPED-2026-10-18",
+    "bytes": 97546,
+    "sha256": "4232e1c809c91e387efbd1cc9da16231644165961b85888522dced9fd9b6754b",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.S3-DISPLAY-RID-VALIDATED-2026-10-18",
+    "bytes": 96574,
+    "sha256": "ee6728cfce18433d1b6e212672b05a2ced0b27696ceb5aa5e73b872baff17780",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1A-NAV-SHELL-VISUAL-ACCEPTED-2026-10-18",
+    "bytes": 123768,
+    "sha256": "382910f4c65fb48c78a9f4de7ddd27ea40d05d740f2482e27a369fa753994ac7",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1A-UI-TOUCH-ACCEPTED-2026-10-18",
+    "bytes": 123768,
+    "sha256": "4c9d0c10bf43128d5c51f3415a1553b59ab2e203e1492826427265e794645a94",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-A-TRUE-IDLE-ACCEPTED-2026-10-19",
+    "bytes": 124042,
+    "sha256": "a0c6d4f3c4953a0a67ca9a01a0e70eba74798fca978756bb2a75a394b1ac1fa6",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-B-SESSION-CONTROL-ACCEPTED-2026-10-19",
+    "bytes": 125366,
+    "sha256": "4983c6b61d2b147931c0e49a57812abd1d9b453230ea412c2257f2bccf3b6c00",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-BAT-D4B-POWER-HEADER-ACCEPTED-2026-10-30",
+    "bytes": 201951,
+    "sha256": "f26d860255f933de068c71b4ce8960187cbcad6ffa634ed051c8fd0277eba3ea",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-BAT-D4C-SAFETY-NOTICE-ACCEPTED-2026-10-30",
+    "bytes": 202223,
+    "sha256": "5a55a5d9fe0b95ecf4943199793fbdba87016ca10d1fa5bf12ea138dfb8e314e",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-BAT-D4D-R2-EST-ALL-SCREENS-ACCEPTED-2026-10-31",
+    "bytes": 202693,
+    "sha256": "a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-BAT-D4E-3B-LOW-VOLTAGE-WARNING-PROVISIONAL-ACCEPTED-2026-11-04",
+    "bytes": 205457,
+    "sha256": "2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-C-RESCAN-ACCEPTED-2026-10-19",
+    "bytes": 126250,
+    "sha256": "9af7a23e546c0bebf728f3def0605487d006efd9390163a89337315f64c5243a",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D1-SNAPSHOT-ENGINE-ACCEPTED-2026-10-19",
+    "bytes": 133003,
+    "sha256": "136d2a7f500c274a4f70db0469acae40a22332b57e332fedd5def74d9c02c4ce",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D2-SNAPSHOT-HWCDC-HARDENED-ACCEPTED-2026-10-19",
+    "bytes": 145065,
+    "sha256": "1fba48a40c5eb86072079ed42c7821e542b6c1cc06742b71016e0f5859ee3eac",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D3.1-LIVE-TARGETS-ACCEPTED-2026-10-19",
+    "bytes": 152554,
+    "sha256": "0fa1acbeac72bc6ff8ba1bdb319116224caad88fe2d27d0ab381cdc364f93b7d",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D3.1-LIVE-TARGETS-LOWLIGHT-CHECKPOINT-2026-10-19",
+    "bytes": 152554,
+    "sha256": "0fa1acbeac72bc6ff8ba1bdb319116224caad88fe2d27d0ab381cdc364f93b7d",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D4A-RADAR-GEO-ACCEPTED-2026-10-20",
+    "bytes": 157408,
+    "sha256": "109c7a8ad34942cea77703edcfb2aad64bd351fa0dab51fa674b9854e8d866af",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D4B-RECEIVER-REFERENCE-ACCEPTED-2026-10-20",
+    "bytes": 158445,
+    "sha256": "586b80f98eaaba71fff8ae462bbdf705c6fef9a4b9cd61309520e7612e9322ff",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D4C-RADAR-READY-ACCEPTED-2026-10-20",
+    "bytes": 161743,
+    "sha256": "f513779996f6708c2e204d20cfa4dde2843fd12f6635acfc64c48176c1910f8d",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D4D-D2C1-RADAR-TARGETS-PRODUCTION-ACCEPTED-2026-10-20",
+    "bytes": 181579,
+    "sha256": "b6bfd5de66b4d3879f116c1b58db0a9054d1d1dd42546c9a1c7f88c158ba6508",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D4D-D2C1-RADAR-UI-VISUAL-ACCEPTED-SYNTHETIC-2026-10-20",
+    "bytes": 185749,
+    "sha256": "45d96a791a80ae4d8da91dcd933a74296fd882ba7f5ea11d36d81f019518a071",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D4E-RADAR-FIXED-REFERENCE-VISIBILITY-ACCEPTED-2026-10-21",
+    "bytes": 189112,
+    "sha256": "e4681241c961aa495f815b7bf82b019f68c2c8bf4e83421c57498ec2c4065234",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D4E-RADAR-LIFECYCLE-VISIBILITY-ACCEPTED-2026-10-21",
+    "bytes": 189893,
+    "sha256": "dee2136cdac5b58d438d4ddaa068816d263e4df090638ecffcbd59dc46117860",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D4F-RADAR-LIFECYCLE-LABELS-ACCEPTED-2026-10-23",
+    "bytes": 190659,
+    "sha256": "166f7f32ca92de4e2858b9e490873c132a59310a5c88478a54df180a3ba64e67",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D4G-STOP-HOME-HARDENING-ACCEPTED-2026-10-23",
+    "bytes": 191216,
+    "sha256": "3a28f08f51f42046e673d69a81073c95fdb63629ef35e3d5540d04067cdc415b",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  },
+  {
+    "archived_name": "RID_UI_Migration.ino.STAGE1B-D4H-COLD-BOOT-ACK-ACCEPTED-2026-10-29",
+    "bytes": 194585,
+    "sha256": "7bdb2be698c63aba895e5b892f29478f8e215807126eb155bac9abd8fcabbfcf",
+    "evidence": "Source identity from archive; filename alone is not a hardware test result."
+  }
+]

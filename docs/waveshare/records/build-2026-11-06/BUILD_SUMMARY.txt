@@ -1,0 +1,42 @@
+STATUS: PASS
+SOURCE SHA256: 2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670
+FQBN: esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CPUFreq=240
+arduino-cli  Version: 1.5.1 Commit: 1.5.1-4 Date: 2026-08-15T07:48:49Z
+
+Original source/dependency hashes unchanged. No upload.
+
+Successfully created ESP32-S3 image.
+python3 <HOME>/.arduino15/packages/esp32/hardware/esp32/3.3.11/tools/gen_esp32part.py -q <isolated-work>/build/partitions.csv <isolated-work>/build/RID_UI_Migration.ino.partitions.bin
+/usr/bin/env bash -c "[ ! -d \"<isolated-work>/build\"/libraries/Insights ] || python3 \"<HOME>/.arduino15/packages/esp32/hardware/esp32/3.3.11\"/tools/gen_insights_package.py <isolated-work>/build RID_UI_Migration.ino \"<isolated-work>/sketch/RID_UI_Migration\""
+/usr/bin/env bash -c "[ ! -d \"<isolated-work>/build\"/libraries/ESP_SR ] || [ ! -f \"<HOME>/.arduino15/packages/esp32/tools/esp32s3-libs/3.3.11\"/esp_sr/srmodels.bin ] || cp -f \"<HOME>/.arduino15/packages/esp32/tools/esp32s3-libs/3.3.11\"/esp_sr/srmodels.bin \"<isolated-work>/build\"/srmodels.bin"
+<HOME>/.arduino15/packages/esp32/tools/esptool_py/5.3.1/esptool --chip esp32s3 merge-bin -o <isolated-work>/build/RID_UI_Migration.ino.merged.bin --pad-to-size 16MB --flash-mode keep --flash-freq keep --flash-size keep 0x0 <isolated-work>/build/RID_UI_Migration.ino.bootloader.bin 0x8000 <isolated-work>/build/RID_UI_Migration.ino.partitions.bin 0xe000 <HOME>/.arduino15/packages/esp32/hardware/esp32/3.3.11/tools/partitions/boot_app0.bin 0x10000 <isolated-work>/build/RID_UI_Migration.ino.bin
+esptool v5.3.1
+Wrote 0x1000000 bytes to file '<isolated-work>/build/RID_UI_Migration.ino.merged.bin', ready to flash to offset 0x0.
+/usr/bin/env bash -c "echo '--flash-mode dio --flash-freq 80m --flash-size 16MB'>'<isolated-work>/build/flash_args'&& echo '0x0 RID_UI_Migration.ino.bootloader.bin'>> '<isolated-work>/build/flash_args'&& echo '0x8000 RID_UI_Migration.ino.partitions.bin'>> '<isolated-work>/build/flash_args'&& echo '0xe000 boot_app0.bin'>> '<isolated-work>/build/flash_args'&& echo '0x10000 RID_UI_Migration.ino.bin'>> '<isolated-work>/build/flash_args'"
+/bin/cp -f <HOME>/.arduino15/packages/esp32/hardware/esp32/3.3.11/tools/partitions/boot_app0.bin <isolated-work>/build/boot_app0.bin
+Using library Wire at version 3.3.11 in folder: <HOME>/.arduino15/packages/esp32/hardware/esp32/3.3.11/libraries/Wire 
+Using library GFX Library for Arduino at version 1.5.5 in folder: <isolated-work>/libraries/GFX_Library_for_Arduino 
+Using library SPI at version 3.3.11 in folder: <HOME>/.arduino15/packages/esp32/hardware/esp32/3.3.11/libraries/SPI 
+Using library TCA9554 at version 0.1.2 in folder: <isolated-work>/libraries/TCA9554 
+Using library SensorLib at version 0.3.1 in folder: <isolated-work>/libraries/SensorLib 
+Using library BLE at version 3.3.11 in folder: <HOME>/.arduino15/packages/esp32/hardware/esp32/3.3.11/libraries/BLE 
+<HOME>/.arduino15/packages/esp32/tools/esp-x32/2601/bin/xtensa-esp32s3-elf-size -A <isolated-work>/build/RID_UI_Migration.ino.elf
+Sketch uses 691519 bytes (21%) of program storage space. Maximum is 3145728 bytes.
+Global variables use 31668 bytes (9%) of dynamic memory, leaving 296012 bytes for local variables. Maximum is 327680 bytes.
+/usr/bin/env bash -c "FQBN_DIR=$(echo 'esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CPUFreq=240' | cut -d: -f1-3 | tr ':' '.') && mkdir -p '<isolated-work>/sketch/RID_UI_Migration/build/'$FQBN_DIR && cp -f '<isolated-work>/build/RID_UI_Migration.ino.'* '<isolated-work>/sketch/RID_UI_Migration/build/'$FQBN_DIR'/' 2>/dev/null || true"
+/usr/bin/env bash -c "FQBN_DIR=$(echo 'esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CPUFreq=240' | cut -d: -f1-3 | tr ':' '.') && mkdir -p '<isolated-work>/sketch/RID_UI_Migration/build/'$FQBN_DIR && cp -f '<isolated-work>/build/partitions.csv' '<isolated-work>/sketch/RID_UI_Migration/build/'$FQBN_DIR'/partitions.csv' 2>/dev/null || true"
+/usr/bin/env bash -c "FQBN_DIR=$(echo 'esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CPUFreq=240' | cut -d: -f1-3 | tr ':' '.') && mkdir -p '<isolated-work>/sketch/RID_UI_Migration/build/'$FQBN_DIR && cp -f '<isolated-work>/build/sdkconfig' '<isolated-work>/sketch/RID_UI_Migration/build/'$FQBN_DIR'/sdkconfig' 2>/dev/null || true"
+/usr/bin/env bash -c "FQBN_DIR=$(echo 'esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CPUFreq=240' | cut -d: -f1-3 | tr ':' '.') && mkdir -p '<isolated-work>/sketch/RID_UI_Migration/build/'$FQBN_DIR && cp -f '<isolated-work>/build/flash_args' '<isolated-work>/sketch/RID_UI_Migration/build/'$FQBN_DIR'/flash_args' 2>/dev/null || true"
+/usr/bin/env bash -c "FQBN_DIR=$(echo 'esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CPUFreq=240' | cut -d: -f1-3 | tr ':' '.') && mkdir -p '<isolated-work>/sketch/RID_UI_Migration/build/'$FQBN_DIR && cp -f '<HOME>/.arduino15/packages/esp32/hardware/esp32/3.3.11/tools/partitions/boot_app0.bin' '<isolated-work>/sketch/RID_UI_Migration/build/'$FQBN_DIR'/boot_app0.bin' 2>/dev/null || true"
+/usr/bin/env bash -c "FQBN_DIR=$(echo 'esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CPUFreq=240' | cut -d: -f1-3 | tr ':' '.') && mkdir -p '<isolated-work>/sketch/RID_UI_Migration/build/'$FQBN_DIR && cp -f '<isolated-work>/build/build.options.json' '<isolated-work>/sketch/RID_UI_Migration/build/'$FQBN_DIR'/build.options.json' 2>/dev/null || true"
+
+Used library            Version Path
+Wire                    3.3.11  <HOME>/.arduino15/packages/esp32/hardware/esp32/3.3.11/libraries/Wire
+GFX Library for Arduino 1.5.5   <isolated-work>/libraries/GFX_Library_for_Arduino
+SPI                     3.3.11  <HOME>/.arduino15/packages/esp32/hardware/esp32/3.3.11/libraries/SPI
+TCA9554                 0.1.2   <isolated-work>/libraries/TCA9554
+SensorLib               0.3.1   <isolated-work>/libraries/SensorLib
+BLE                     3.3.11  <HOME>/.arduino15/packages/esp32/hardware/esp32/3.3.11/libraries/BLE
+
+Used platform Version Path
+esp32:esp32   3.3.11  <HOME>/.arduino15/packages/esp32/hardware/esp32/3.3.11

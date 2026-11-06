@@ -1,0 +1,10402 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <Arduino_GFX_Library.h>
+#include "TCA9554.h"
+#include "TouchDrvFT6X36.hpp"
+#include <BLEDevice.h>
+#include <BLEScan.h>
+#include <BLEAdvertisedDevice.h>
+// CYD1 display/touch dependencies intentionally disabled
+// for ESP32-S3 backend-only parity validation.
+// #include <SPI.h>
+// #include <XPT2046_Touchscreen.h>
+// #include <TFT_eSPI.h>
+#include <math.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+
+
+// ====================================================
+// CYD1 REMOTE ID MULTI-TARGET ENGINE
+// STAGE 7C
+// ====================================================
+
+BLEScan *pBLEScan;
+
+const uint32_t STARTUP_DELAY_MS = 1000;
+const uint32_t SCAN_WINDOW_SECONDS = 60;
+
+const uint32_t DASHBOARD_INTERVAL_MS = 1000;
+
+const uint8_t MAX_TARGETS = 4;
+
+const uint32_t TARGET_ACTIVE_MS = 3000;
+const uint32_t TARGET_STALE_MS = 10000;
+const uint32_t TARGET_REUSE_MS = 15000;
+
+
+// ====================================================
+// OUTPUT MODE
+// ====================================================
+
+enum OutputMode {
+    MODE_PRIVATE,
+    MODE_OPEN
+};
+
+OutputMode outputMode = MODE_PRIVATE;
+
+
+// ====================================================
+// GLOBAL STATISTICS
+// ====================================================
+
+volatile uint32_t totalAdvertisements = 0;
+volatile uint32_t remoteIDPackets = 0;
+
+uint32_t messageTypeCounts[16] = {0};
+
+uint32_t lastDashboardPrintMs = 0;
+
+uint32_t targetAllocationFailures = 0;
+
+
+// ============================================================
+// ASYNCHRONOUS SCAN CONTROLLER
+// Stage 4B-B
+// ============================================================
+
+volatile bool scanCompletePending = false;
+
+bool scanSessionActive = false;
+bool scanStopRequested = false;
+
+uint32_t scanStartedMs = 0;
+uint32_t scanWindowCount = 0;
+
+
+
+// ====================================================
+// TARGET STRUCTURE
+// ====================================================
+
+struct RIDTarget {
+
+    bool allocated = false;
+
+    String sourceAddress = "";
+
+
+    // --------------------------------
+    // Identity
+    // --------------------------------
+
+    bool hasSerialID = false;
+    bool hasRegistrationID = false;
+    bool hasOperatorID = false;
+
+    String serialID = "";
+    String registrationID = "";
+    String operatorID = "";
+
+    uint8_t uaType = 0;
+    uint8_t protocolVersion = 0;
+
+
+    // --------------------------------
+    // Position / telemetry
+    // --------------------------------
+
+    bool hasPosition = false;
+
+    uint8_t flightStatus = 0;
+
+    double latitude = 0.0;
+    double longitude = 0.0;
+
+    bool directionValid = false;
+    float direction = 0.0f;
+
+    bool horizontalSpeedValid = false;
+    float horizontalSpeed = 0.0f;
+
+    bool verticalSpeedValid = false;
+    float verticalSpeed = 0.0f;
+
+    bool barometricAltitudeValid = false;
+    float barometricAltitude = 0.0f;
+
+    bool geodeticAltitudeValid = false;
+    float geodeticAltitude = 0.0f;
+
+    bool heightValid = false;
+    float height = 0.0f;
+
+    bool heightFromGround = false;
+
+
+    // --------------------------------
+    // Accuracy
+    // --------------------------------
+
+    uint8_t horizontalAccuracy = 0;
+    uint8_t verticalAccuracy = 0;
+    uint8_t barometricAccuracy = 0;
+    uint8_t speedAccuracy = 0;
+    uint8_t timestampAccuracy = 0;
+
+
+    // --------------------------------
+    // RID timestamp
+    // --------------------------------
+
+    float remoteIDTimestamp = 0.0f;
+
+    // --------------------------------
+    // System message
+    // --------------------------------
+
+    bool hasSystemData = false;
+
+    uint8_t operatorLocationType = 0;
+    uint8_t classificationType = 0;
+
+    bool hasSystemOperatorPosition = false;
+
+    double systemOperatorLatitude = 0.0;
+    double systemOperatorLongitude = 0.0;
+
+    uint16_t areaCount = 0;
+    uint16_t areaRadius = 0;
+
+    bool areaCeilingValid = false;
+    float areaCeiling = 0.0f;
+
+    bool areaFloorValid = false;
+    float areaFloor = 0.0f;
+
+    uint8_t categoryEU = 0;
+    uint8_t classEU = 0;
+
+    bool operatorGeoAltitudeValid = false;
+    float operatorGeoAltitude = 0.0f;
+
+    uint32_t systemTimestamp = 0;
+
+
+    // --------------------------------
+    // RSSI filter
+    // --------------------------------
+
+    int currentRSSI = 0;
+
+    int rssiSamples[5] = {0};
+
+    uint8_t rssiCount = 0;
+    uint8_t rssiIndex = 0;
+
+
+    // --------------------------------
+    // Packet counters
+    // --------------------------------
+
+    uint32_t packetCount = 0;
+
+    uint32_t basicIDCount = 0;
+    uint32_t locationCount = 0;
+    uint32_t systemCount = 0;
+    uint32_t operatorIDCount = 0;
+
+
+    // --------------------------------
+    // Receiver timing
+    // --------------------------------
+
+    uint32_t firstSeenMs = 0;
+    uint32_t lastSeenMs = 0;
+
+    // Updated ONLY when a Location/Vector packet supplies
+    // a nonzero geographic position. General RID traffic
+    // must not keep geographic data artificially fresh.
+    uint32_t lastPositionSeenMs = 0;
+};
+
+
+RIDTarget targets[MAX_TARGETS];
+
+// Protects targets[] now that BLE callbacks and the UI run
+// concurrently on the ESP32.
+SemaphoreHandle_t targetMutex = nullptr;
+
+
+// ====================================================
+// BYTE HELPERS
+// ====================================================
+
+uint8_t getByte(
+    const String &data,
+    size_t index
+) {
+
+    return static_cast<uint8_t>(
+        data[index]
+    );
+}
+
+
+uint16_t readU16LE(
+    const String &data,
+    size_t index
+) {
+
+    uint16_t value = 0;
+
+    value |=
+        static_cast<uint16_t>(
+            getByte(data, index)
+        );
+
+    value |=
+        static_cast<uint16_t>(
+            getByte(data, index + 1)
+        ) << 8;
+
+    return value;
+}
+
+
+int32_t readI32LE(
+    const String &data,
+    size_t index
+) {
+
+    uint32_t value = 0;
+
+    value |=
+        static_cast<uint32_t>(
+            getByte(data, index)
+        );
+
+    value |=
+        static_cast<uint32_t>(
+            getByte(data, index + 1)
+        ) << 8;
+
+    value |=
+        static_cast<uint32_t>(
+            getByte(data, index + 2)
+        ) << 16;
+
+    value |=
+        static_cast<uint32_t>(
+            getByte(data, index + 3)
+        ) << 24;
+
+    return static_cast<int32_t>(
+        value
+    );
+}
+
+
+String readTextField(
+    const String &data,
+    size_t startIndex,
+    size_t length
+) {
+
+    String text = "";
+
+    for (
+        size_t i = 0;
+        i < length;
+        i++
+    ) {
+
+        char c =
+            data[startIndex + i];
+
+        if (c == '\0') {
+            break;
+        }
+
+        if (
+            c >= 32
+            &&
+            c <= 126
+        ) {
+
+            text += c;
+        }
+    }
+
+    return text;
+}
+
+
+// ====================================================
+// MESSAGE / TARGET NAMES
+// ====================================================
+
+const char *messageTypeName(
+    uint8_t messageType
+) {
+
+    switch (messageType) {
+
+        case 0:
+            return "BASIC ID";
+
+        case 1:
+            return "LOCATION / VECTOR";
+
+        case 2:
+            return "AUTHENTICATION";
+
+        case 3:
+            return "SELF ID";
+
+        case 4:
+            return "SYSTEM";
+
+        case 5:
+            return "OPERATOR ID";
+
+        case 15:
+            return "MESSAGE PACK";
+
+        default:
+            return "UNKNOWN / RESERVED";
+    }
+}
+
+
+const char *uaTypeName(
+    uint8_t uaType
+) {
+
+    switch (uaType) {
+
+        case 0:
+            return "NONE";
+
+        case 1:
+            return "AEROPLANE";
+
+        case 2:
+            return "HELICOPTER / MULTIROTOR";
+
+        case 3:
+            return "GYROPLANE";
+
+        case 4:
+            return "HYBRID LIFT";
+
+        case 5:
+            return "ORNITHOPTER";
+
+        case 6:
+            return "GLIDER";
+
+        case 7:
+            return "KITE";
+
+        case 8:
+            return "FREE BALLOON";
+
+        case 9:
+            return "CAPTIVE BALLOON";
+
+        case 10:
+            return "AIRSHIP";
+
+        case 11:
+            return "FREE FALL / PARACHUTE";
+
+        case 12:
+            return "ROCKET";
+
+        case 13:
+            return "TETHERED POWERED AIRCRAFT";
+
+        case 14:
+            return "GROUND OBSTACLE";
+
+        case 15:
+            return "OTHER";
+
+        default:
+            return "UNKNOWN";
+    }
+}
+
+
+const char *flightStatusName(
+    uint8_t status
+) {
+
+    switch (status) {
+
+        case 0:
+            return "UNDECLARED";
+
+        case 1:
+            return "GROUND";
+
+        case 2:
+            return "AIRBORNE";
+
+        case 3:
+            return "EMERGENCY";
+
+        default:
+            return "UNKNOWN";
+    }
+}
+
+
+// ====================================================
+// SYSTEM MESSAGE NAMES
+// ====================================================
+
+const char *operatorLocationTypeName(
+    uint8_t type
+) {
+
+    switch (type) {
+
+        case 0:
+            return "TAKEOFF";
+
+        case 1:
+            return "LIVE GNSS";
+
+        case 2:
+            return "FIXED";
+
+        default:
+            return "RESERVED / UNKNOWN";
+    }
+}
+
+
+const char *classificationTypeName(
+    uint8_t type
+) {
+
+    switch (type) {
+
+        case 0:
+            return "UNDECLARED";
+
+        case 1:
+            return "EU";
+
+        default:
+            return "RESERVED / UNKNOWN";
+    }
+}
+
+
+const char *categoryEUName(
+    uint8_t category
+) {
+
+    switch (category) {
+
+        case 0:
+            return "UNDECLARED";
+
+        case 1:
+            return "OPEN";
+
+        case 2:
+            return "SPECIFIC";
+
+        case 3:
+            return "CERTIFIED";
+
+        default:
+            return "RESERVED / UNKNOWN";
+    }
+}
+
+
+const char *classEUName(
+    uint8_t value
+) {
+
+    switch (value) {
+
+        case 0:
+            return "UNDECLARED";
+
+        case 1:
+            return "CLASS 0";
+
+        case 2:
+            return "CLASS 1";
+
+        case 3:
+            return "CLASS 2";
+
+        case 4:
+            return "CLASS 3";
+
+        case 5:
+            return "CLASS 4";
+
+        case 6:
+            return "CLASS 5";
+
+        case 7:
+            return "CLASS 6";
+
+        default:
+            return "RESERVED / UNKNOWN";
+    }
+}
+
+
+// ====================================================
+// TARGET LIFECYCLE
+// ====================================================
+
+const char *targetStateName(
+    const RIDTarget &target
+) {
+
+    if (!target.allocated) {
+        return "EMPTY";
+    }
+
+
+    uint32_t age =
+        millis()
+        -
+        target.lastSeenMs;
+
+
+    if (
+        age <= TARGET_ACTIVE_MS
+    ) {
+
+        return "ACTIVE";
+    }
+
+
+    if (
+        age <= TARGET_STALE_MS
+    ) {
+
+        return "STALE";
+    }
+
+
+    return "LOST";
+}
+
+
+// ====================================================
+// RSSI FILTER
+// ====================================================
+
+void addRSSISample(
+    RIDTarget &target,
+    int rssi
+) {
+
+    target.currentRSSI =
+        rssi;
+
+
+    target.rssiSamples[
+        target.rssiIndex
+    ] = rssi;
+
+
+    target.rssiIndex++;
+
+
+    if (
+        target.rssiIndex >= 5
+    ) {
+
+        target.rssiIndex = 0;
+    }
+
+
+    if (
+        target.rssiCount < 5
+    ) {
+
+        target.rssiCount++;
+    }
+}
+
+
+int getFilteredRSSI(
+    RIDTarget &target
+) {
+
+    if (
+        target.rssiCount == 0
+    ) {
+
+        return 0;
+    }
+
+
+    int sorted[5];
+
+
+    for (
+        uint8_t i = 0;
+        i < target.rssiCount;
+        i++
+    ) {
+
+        sorted[i] =
+            target.rssiSamples[i];
+    }
+
+
+    for (
+        uint8_t i = 1;
+        i < target.rssiCount;
+        i++
+    ) {
+
+        int key =
+            sorted[i];
+
+        int j =
+            i - 1;
+
+
+        while (
+            j >= 0
+            &&
+            sorted[j] > key
+        ) {
+
+            sorted[j + 1] =
+                sorted[j];
+
+            j--;
+        }
+
+
+        sorted[j + 1] =
+            key;
+    }
+
+
+    if (
+        target.rssiCount % 2 == 1
+    ) {
+
+        return
+            sorted[
+                target.rssiCount / 2
+            ];
+    }
+
+
+    int upper =
+        sorted[
+            target.rssiCount / 2
+        ];
+
+
+    int lower =
+        sorted[
+            (target.rssiCount / 2) - 1
+        ];
+
+
+    return
+        (lower + upper)
+        / 2;
+}
+
+
+// ====================================================
+// TARGET LOOKUP / ALLOCATION
+// ====================================================
+
+int findTargetByAddress(
+    const String &address
+) {
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+
+        if (
+            targets[i].allocated
+            &&
+            targets[i].sourceAddress
+                .equalsIgnoreCase(address)
+        ) {
+
+            return i;
+        }
+    }
+
+
+    return -1;
+}
+
+
+int allocateTarget(
+    const String &address
+) {
+
+    // --------------------------------
+    // First try an unused slot.
+    // --------------------------------
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+
+        if (
+            !targets[i].allocated
+        ) {
+
+            targets[i] =
+                RIDTarget();
+
+
+            targets[i].allocated =
+                true;
+
+
+            targets[i].sourceAddress =
+                address;
+
+
+            targets[i].firstSeenMs =
+                millis();
+
+
+            targets[i].lastSeenMs =
+                millis();
+
+
+            return i;
+        }
+    }
+
+
+    // --------------------------------
+    // Otherwise reuse a sufficiently
+    // old LOST target.
+    // --------------------------------
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+
+        uint32_t age =
+            millis()
+            -
+            targets[i].lastSeenMs;
+
+
+        if (
+            age > TARGET_REUSE_MS
+        ) {
+
+            targets[i] =
+                RIDTarget();
+
+
+            targets[i].allocated =
+                true;
+
+
+            targets[i].sourceAddress =
+                address;
+
+
+            targets[i].firstSeenMs =
+                millis();
+
+
+            targets[i].lastSeenMs =
+                millis();
+
+
+            return i;
+        }
+    }
+
+
+    targetAllocationFailures++;
+
+    return -1;
+}
+
+
+int findOrCreateTarget(
+    const String &address
+) {
+
+    int targetIndex =
+        findTargetByAddress(
+            address
+        );
+
+
+    if (
+        targetIndex >= 0
+    ) {
+
+        return targetIndex;
+    }
+
+
+    return
+        allocateTarget(
+            address
+        );
+}
+
+
+// ====================================================
+// TELEMETRY DECODERS
+// ====================================================
+
+float decodeAltitude(
+    uint16_t encodedAltitude
+) {
+
+    return
+        (
+            static_cast<float>(
+                encodedAltitude
+            )
+            * 0.5f
+        )
+        - 1000.0f;
+}
+
+
+float decodeHorizontalSpeed(
+    uint8_t encodedSpeed,
+    bool speedMultiplier
+) {
+
+    if (
+        speedMultiplier
+    ) {
+
+        return
+            (
+                static_cast<float>(
+                    encodedSpeed
+                )
+                * 0.75f
+            )
+            + 63.75f;
+    }
+
+
+    return
+        static_cast<float>(
+            encodedSpeed
+        )
+        * 0.25f;
+}
+
+
+float decodeVerticalSpeed(
+    int8_t encodedSpeed
+) {
+
+    return
+        static_cast<float>(
+            encodedSpeed
+        )
+        * 0.5f;
+}
+
+
+// ====================================================
+// BASIC ID UPDATE
+// ====================================================
+
+void updateBasicID(
+    RIDTarget &target,
+    const String &serviceData
+) {
+
+    target.basicIDCount++;
+
+
+    uint8_t idAndUAType =
+        getByte(
+            serviceData,
+            3
+        );
+
+
+    uint8_t idType =
+        (
+            idAndUAType >> 4
+        )
+        & 0x0F;
+
+
+    uint8_t uaType =
+        idAndUAType
+        & 0x0F;
+
+
+    String uasID =
+        readTextField(
+            serviceData,
+            4,
+            20
+        );
+
+
+    target.uaType =
+        uaType;
+
+
+    if (
+        idType == 1
+        &&
+        uasID.length() > 0
+    ) {
+
+        target.serialID =
+            uasID;
+
+        target.hasSerialID =
+            true;
+    }
+
+
+    else if (
+        idType == 2
+        &&
+        uasID.length() > 0
+    ) {
+
+        target.registrationID =
+            uasID;
+
+        target.hasRegistrationID =
+            true;
+    }
+}
+
+
+// ====================================================
+// LOCATION UPDATE
+// ====================================================
+
+void updateLocation(
+    RIDTarget &target,
+    const String &serviceData
+) {
+
+    target.locationCount++;
+
+
+    uint8_t statusFlags =
+        getByte(
+            serviceData,
+            3
+        );
+
+
+    bool speedMultiplier =
+        statusFlags
+        & 0x01;
+
+
+    bool eastWestDirection =
+        (
+            statusFlags >> 1
+        )
+        & 0x01;
+
+
+    bool heightType =
+        (
+            statusFlags >> 2
+        )
+        & 0x01;
+
+
+    target.flightStatus =
+        (
+            statusFlags >> 4
+        )
+        & 0x0F;
+
+
+    uint8_t directionEncoded =
+        getByte(
+            serviceData,
+            4
+        );
+
+
+    float direction =
+        static_cast<float>(
+            directionEncoded
+        );
+
+
+    if (
+        eastWestDirection
+    ) {
+
+        direction += 180.0f;
+    }
+
+
+    if (
+        direction <= 360.0f
+    ) {
+
+        target.direction =
+            direction;
+
+        target.directionValid =
+            true;
+    }
+
+    else {
+
+        target.directionValid =
+            false;
+    }
+
+
+    uint8_t horizontalSpeedEncoded =
+        getByte(
+            serviceData,
+            5
+        );
+
+
+    float horizontalSpeed =
+        decodeHorizontalSpeed(
+            horizontalSpeedEncoded,
+            speedMultiplier
+        );
+
+
+    if (
+        horizontalSpeed < 255.0f
+    ) {
+
+        target.horizontalSpeed =
+            horizontalSpeed;
+
+        target.horizontalSpeedValid =
+            true;
+    }
+
+    else {
+
+        target.horizontalSpeedValid =
+            false;
+    }
+
+
+    int8_t verticalSpeedEncoded =
+        static_cast<int8_t>(
+            getByte(
+                serviceData,
+                6
+            )
+        );
+
+
+    float verticalSpeed =
+        decodeVerticalSpeed(
+            verticalSpeedEncoded
+        );
+
+
+    if (
+        verticalSpeed != 63.0f
+    ) {
+
+        target.verticalSpeed =
+            verticalSpeed;
+
+        target.verticalSpeedValid =
+            true;
+    }
+
+    else {
+
+        target.verticalSpeedValid =
+            false;
+    }
+
+
+    int32_t latitudeRaw =
+        readI32LE(
+            serviceData,
+            7
+        );
+
+
+    int32_t longitudeRaw =
+        readI32LE(
+            serviceData,
+            11
+        );
+
+
+    target.latitude =
+        static_cast<double>(
+            latitudeRaw
+        )
+        / 10000000.0;
+
+
+    target.longitude =
+        static_cast<double>(
+            longitudeRaw
+        )
+        / 10000000.0;
+
+
+    target.hasPosition =
+        (
+            latitudeRaw != 0
+            ||
+            longitudeRaw != 0
+        );
+
+
+    if (target.hasPosition) {
+
+        target.lastPositionSeenMs =
+            millis();
+    }
+
+
+    uint16_t baroRaw =
+        readU16LE(
+            serviceData,
+            15
+        );
+
+
+    uint16_t geoRaw =
+        readU16LE(
+            serviceData,
+            17
+        );
+
+
+    uint16_t heightRaw =
+        readU16LE(
+            serviceData,
+            19
+        );
+
+
+    target.barometricAltitudeValid =
+        baroRaw != 0;
+
+
+    target.geodeticAltitudeValid =
+        geoRaw != 0;
+
+
+    target.heightValid =
+        heightRaw != 0;
+
+
+    if (
+        target.barometricAltitudeValid
+    ) {
+
+        target.barometricAltitude =
+            decodeAltitude(
+                baroRaw
+            );
+    }
+
+
+    if (
+        target.geodeticAltitudeValid
+    ) {
+
+        target.geodeticAltitude =
+            decodeAltitude(
+                geoRaw
+            );
+    }
+
+
+    if (
+        target.heightValid
+    ) {
+
+        target.height =
+            decodeAltitude(
+                heightRaw
+            );
+    }
+
+
+    target.heightFromGround =
+        heightType;
+
+
+    uint8_t accuracyByte1 =
+        getByte(
+            serviceData,
+            21
+        );
+
+
+    target.horizontalAccuracy =
+        accuracyByte1
+        & 0x0F;
+
+
+    target.verticalAccuracy =
+        (
+            accuracyByte1 >> 4
+        )
+        & 0x0F;
+
+
+    uint8_t accuracyByte2 =
+        getByte(
+            serviceData,
+            22
+        );
+
+
+    target.speedAccuracy =
+        accuracyByte2
+        & 0x0F;
+
+
+    target.barometricAccuracy =
+        (
+            accuracyByte2 >> 4
+        )
+        & 0x0F;
+
+
+    uint16_t timestampRaw =
+        readU16LE(
+            serviceData,
+            23
+        );
+
+
+    if (
+        timestampRaw
+        !=
+        0xFFFF
+    ) {
+
+        target.remoteIDTimestamp =
+            static_cast<float>(
+                timestampRaw
+            )
+            / 10.0f;
+    }
+
+
+    target.timestampAccuracy =
+        getByte(
+            serviceData,
+            25
+        )
+        & 0x0F;
+}
+
+
+// ====================================================
+// SYSTEM UPDATE
+// ====================================================
+
+void updateSystem(
+    RIDTarget &target,
+    const String &serviceData
+) {
+
+    target.systemCount++;
+
+    target.hasSystemData =
+        true;
+
+
+    // --------------------------------
+    // Operator location /
+    // classification flags
+    // --------------------------------
+
+    uint8_t flags =
+        getByte(
+            serviceData,
+            3
+        );
+
+
+    target.operatorLocationType =
+        flags
+        &
+        0x03;
+
+
+    target.classificationType =
+        (
+            flags >> 2
+        )
+        &
+        0x07;
+
+
+    // --------------------------------
+    // Operator position
+    // --------------------------------
+
+    int32_t operatorLatitudeRaw =
+        readI32LE(
+            serviceData,
+            4
+        );
+
+
+    int32_t operatorLongitudeRaw =
+        readI32LE(
+            serviceData,
+            8
+        );
+
+
+    if (
+        operatorLatitudeRaw != 0
+        ||
+        operatorLongitudeRaw != 0
+    ) {
+
+        target.systemOperatorLatitude =
+            static_cast<double>(
+                operatorLatitudeRaw
+            )
+            /
+            10000000.0;
+
+
+        target.systemOperatorLongitude =
+            static_cast<double>(
+                operatorLongitudeRaw
+            )
+            /
+            10000000.0;
+
+
+        target.hasSystemOperatorPosition =
+            true;
+    }
+
+    else {
+
+        target.systemOperatorLatitude =
+            0.0;
+
+        target.systemOperatorLongitude =
+            0.0;
+
+        target.hasSystemOperatorPosition =
+            false;
+    }
+
+
+    // --------------------------------
+    // Area data
+    // --------------------------------
+
+    target.areaCount =
+        readU16LE(
+            serviceData,
+            12
+        );
+
+
+    target.areaRadius =
+        static_cast<uint16_t>(
+            getByte(
+                serviceData,
+                14
+            )
+        )
+        *
+        10U;
+
+
+    // --------------------------------
+    // Area ceiling
+    // --------------------------------
+
+    uint16_t areaCeilingRaw =
+        readU16LE(
+            serviceData,
+            15
+        );
+
+
+    if (
+        areaCeilingRaw
+        !=
+        0
+    ) {
+
+        target.areaCeiling =
+            decodeAltitude(
+                areaCeilingRaw
+            );
+
+        target.areaCeilingValid =
+            true;
+    }
+
+    else {
+
+        target.areaCeilingValid =
+            false;
+    }
+
+
+    // --------------------------------
+    // Area floor
+    // --------------------------------
+
+    uint16_t areaFloorRaw =
+        readU16LE(
+            serviceData,
+            17
+        );
+
+
+    if (
+        areaFloorRaw
+        !=
+        0
+    ) {
+
+        target.areaFloor =
+            decodeAltitude(
+                areaFloorRaw
+            );
+
+        target.areaFloorValid =
+            true;
+    }
+
+    else {
+
+        target.areaFloorValid =
+            false;
+    }
+
+
+    // --------------------------------
+    // EU category / class
+    // --------------------------------
+
+    uint8_t classificationByte =
+        getByte(
+            serviceData,
+            19
+        );
+
+
+    target.classEU =
+        classificationByte
+        &
+        0x0F;
+
+
+    target.categoryEU =
+        (
+            classificationByte >> 4
+        )
+        &
+        0x0F;
+
+
+    // --------------------------------
+    // Operator geodetic altitude
+    // --------------------------------
+
+    uint16_t operatorAltitudeRaw =
+        readU16LE(
+            serviceData,
+            20
+        );
+
+
+    if (
+        operatorAltitudeRaw
+        !=
+        0
+    ) {
+
+        target.operatorGeoAltitude =
+            decodeAltitude(
+                operatorAltitudeRaw
+            );
+
+        target.operatorGeoAltitudeValid =
+            true;
+    }
+
+    else {
+
+        target.operatorGeoAltitudeValid =
+            false;
+    }
+
+
+    // --------------------------------
+    // System timestamp
+    //
+    // uint32 little-endian,
+    // seconds since 2019-01-01 UTC.
+    // --------------------------------
+
+    target.systemTimestamp =
+        static_cast<uint32_t>(
+            getByte(
+                serviceData,
+                22
+            )
+        )
+        |
+        (
+            static_cast<uint32_t>(
+                getByte(
+                    serviceData,
+                    23
+                )
+            )
+            << 8
+        )
+        |
+        (
+            static_cast<uint32_t>(
+                getByte(
+                    serviceData,
+                    24
+                )
+            )
+            << 16
+        )
+        |
+        (
+            static_cast<uint32_t>(
+                getByte(
+                    serviceData,
+                    25
+                )
+            )
+            << 24
+        );
+}
+
+
+// ====================================================
+// OPERATOR ID UPDATE
+// ====================================================
+
+void updateOperatorID(
+    RIDTarget &target,
+    const String &serviceData
+) {
+
+    target.operatorIDCount++;
+
+
+    String operatorID =
+        readTextField(
+            serviceData,
+            4,
+            20
+        );
+
+
+    if (
+        operatorID.length() > 0
+    ) {
+
+        target.operatorID =
+            operatorID;
+
+        target.hasOperatorID =
+            true;
+    }
+
+    else {
+
+        target.operatorID =
+            "";
+
+        target.hasOperatorID =
+            false;
+    }
+}
+
+
+// ====================================================
+// PRIVACY-AWARE OUTPUT
+// ====================================================
+
+void printProtectedID(
+    const char *label,
+    const String &value,
+    bool present
+) {
+
+    Serial.print(label);
+
+
+    if (!present) {
+
+        Serial.println(
+            "<not provided>"
+        );
+
+        return;
+    }
+
+
+    if (
+        outputMode
+        ==
+        MODE_PRIVATE
+    ) {
+
+        Serial.println(
+            "[REDACTED]"
+        );
+    }
+
+    else {
+
+        Serial.println(
+            value
+        );
+    }
+}
+
+
+// ====================================================
+// TARGET COUNTS
+// ====================================================
+
+uint8_t getTrackedTargetCount() {
+
+    uint8_t count = 0;
+
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+
+        if (
+            targets[i].allocated
+        ) {
+
+            count++;
+        }
+    }
+
+
+    return count;
+}
+
+
+uint8_t getActiveTargetCount() {
+
+    uint8_t count = 0;
+
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+
+        if (
+            !targets[i].allocated
+        ) {
+
+            continue;
+        }
+
+
+        uint32_t age =
+            millis()
+            -
+            targets[i].lastSeenMs;
+
+
+        if (
+            age <= TARGET_ACTIVE_MS
+        ) {
+
+            count++;
+        }
+    }
+
+
+    return count;
+}
+
+
+// ====================================================
+// COMPACT MULTI-TARGET SUMMARY
+// ====================================================
+
+void printTargetSummary() {
+
+    // --------------------------------------------------------
+    // Copy only the compact dashboard fields while holding the
+    // target mutex. Serial output happens AFTER releasing it.
+    // --------------------------------------------------------
+
+    struct DashboardTargetCopy {
+
+        bool allocated = false;
+
+        uint8_t stateCode = 0;
+
+        uint8_t uaType = 0;
+        uint8_t flightStatus = 0;
+
+        bool hasPosition = false;
+
+        int filteredRSSI = 0;
+
+        uint32_t packetCount = 0;
+        uint32_t lastSeenMs = 0;
+    };
+
+
+    DashboardTargetCopy copies[MAX_TARGETS];
+
+    uint8_t trackedCount = 0;
+    uint8_t activeCount = 0;
+
+    uint32_t snapshotMs =
+        millis();
+
+    OutputMode summaryMode =
+        outputMode;
+
+
+    if (targetMutex != nullptr) {
+
+        xSemaphoreTake(
+            targetMutex,
+            portMAX_DELAY
+        );
+    }
+
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+
+        RIDTarget &target =
+            targets[i];
+
+        DashboardTargetCopy &copy =
+            copies[i];
+
+
+        copy.allocated =
+            target.allocated;
+
+
+        if (!target.allocated) {
+
+            continue;
+        }
+
+
+        trackedCount++;
+
+
+        uint32_t age =
+            snapshotMs
+            -
+            target.lastSeenMs;
+
+
+        if (
+            age <= TARGET_ACTIVE_MS
+        ) {
+
+            copy.stateCode = 1;
+            activeCount++;
+        }
+
+        else if (
+            age <= TARGET_STALE_MS
+        ) {
+
+            copy.stateCode = 2;
+        }
+
+        else {
+
+            copy.stateCode = 3;
+        }
+
+
+        copy.uaType =
+            target.uaType;
+
+        copy.flightStatus =
+            target.flightStatus;
+
+        copy.hasPosition =
+            target.hasPosition;
+
+        copy.filteredRSSI =
+            getFilteredRSSI(
+                target
+            );
+
+        copy.packetCount =
+            target.packetCount;
+
+        copy.lastSeenMs =
+            target.lastSeenMs;
+    }
+
+
+    if (targetMutex != nullptr) {
+
+        xSemaphoreGive(
+            targetMutex
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // Serial work is intentionally outside targetMutex.
+    // --------------------------------------------------------
+
+    Serial.println();
+
+    Serial.println(
+        "========== RID TARGET SUMMARY =========="
+    );
+
+
+    Serial.print(
+        "Output Mode: "
+    );
+
+    Serial.println(
+        summaryMode == MODE_PRIVATE
+        ? "PRIVATE"
+        : "OPEN"
+    );
+
+
+    Serial.print(
+        "Targets Tracked: "
+    );
+
+    Serial.println(
+        trackedCount
+    );
+
+
+    Serial.print(
+        "Targets Active: "
+    );
+
+    Serial.println(
+        activeCount
+    );
+
+
+    Serial.println();
+
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+
+        DashboardTargetCopy &copy =
+            copies[i];
+
+
+        if (!copy.allocated) {
+
+            continue;
+        }
+
+
+        Serial.print(
+            "T"
+        );
+
+
+        if (
+            i + 1 < 10
+        ) {
+
+            Serial.print(
+                "0"
+            );
+        }
+
+
+        Serial.print(
+            i + 1
+        );
+
+
+        Serial.print(
+            "  "
+        );
+
+
+        switch (
+            copy.stateCode
+        ) {
+
+            case 1:
+                Serial.print(
+                    "ACTIVE"
+                );
+                break;
+
+            case 2:
+                Serial.print(
+                    "STALE"
+                );
+                break;
+
+            case 3:
+                Serial.print(
+                    "LOST"
+                );
+                break;
+
+            default:
+                Serial.print(
+                    "EMPTY"
+                );
+                break;
+        }
+
+
+        Serial.print(
+            "  "
+        );
+
+
+        Serial.println(
+            uaTypeName(
+                copy.uaType
+            )
+        );
+
+
+        Serial.print(
+            "State: "
+        );
+
+        Serial.println(
+            flightStatusName(
+                copy.flightStatus
+            )
+        );
+
+
+        Serial.print(
+            "Position: "
+        );
+
+        Serial.println(
+            copy.hasPosition
+            ? "VALID"
+            : "UNKNOWN"
+        );
+
+
+        Serial.print(
+            "RSSI: "
+        );
+
+        Serial.print(
+            copy.filteredRSSI
+        );
+
+        Serial.println(
+            " dBm"
+        );
+
+
+        Serial.print(
+            "Packets: "
+        );
+
+        Serial.println(
+            copy.packetCount
+        );
+
+
+        Serial.print(
+            "Last Seen: "
+        );
+
+        Serial.print(
+            snapshotMs
+            -
+            copy.lastSeenMs
+        );
+
+        Serial.println(
+            " ms ago"
+        );
+
+
+        Serial.println();
+    }
+
+
+    Serial.println(
+        "========================================"
+    );
+}
+
+
+// ============================================================
+// MAIN-LOOP DASHBOARD SERVICE
+//
+// Heavy formatted Serial output must never run inside the BLE
+// advertisement callback. RF processing owns the callback;
+// diagnostics are serviced independently by the main loop.
+// ============================================================
+
+void serviceTargetDashboard() {
+
+    if (
+        !scanSessionActive
+        || scanStopRequested
+    ) {
+
+        return;
+    }
+
+
+    uint32_t now =
+        millis();
+
+
+    if (
+        now
+        -
+        lastDashboardPrintMs
+        <
+        DASHBOARD_INTERVAL_MS
+    ) {
+
+        return;
+    }
+
+
+    // Advance the timer before printing so diagnostic timing
+    // cannot cause an immediate duplicate emission.
+    lastDashboardPrintMs =
+        now;
+
+
+    printTargetSummary();
+}
+
+
+// ====================================================
+// FULL TARGET SNAPSHOT
+// ====================================================
+
+void printTargetDetail(
+    uint8_t index
+) {
+
+    RIDTarget &target =
+        targets[index];
+
+
+    if (
+        !target.allocated
+    ) {
+
+        return;
+    }
+
+
+    Serial.println();
+
+    Serial.println(
+        "========================================"
+    );
+
+
+    Serial.print(
+        "           RID TARGET "
+    );
+
+
+    if (
+        index + 1 < 10
+    ) {
+
+        Serial.print(
+            "0"
+        );
+    }
+
+
+    Serial.println(
+        index + 1
+    );
+
+
+    Serial.println(
+        "========================================"
+    );
+
+
+    Serial.print(
+        "Target State: "
+    );
+
+    Serial.println(
+        targetStateName(
+            target
+        )
+    );
+
+
+    Serial.print(
+        "Aircraft Type: "
+    );
+
+    Serial.println(
+        uaTypeName(
+            target.uaType
+        )
+    );
+
+
+    printProtectedID(
+        "Serial ID: ",
+        target.serialID,
+        target.hasSerialID
+    );
+
+
+    printProtectedID(
+        "Registration ID: ",
+        target.registrationID,
+        target.hasRegistrationID
+    );
+
+
+    if (
+        target.hasOperatorID
+    ) {
+
+        printProtectedID(
+            "Operator ID: ",
+            target.operatorID,
+            true
+        );
+    }
+
+    else {
+
+        Serial.println(
+            "Operator ID: <not configured>"
+        );
+    }
+
+
+    if (
+        outputMode == MODE_OPEN
+    ) {
+
+        Serial.print(
+            "BLE Source: "
+        );
+
+        Serial.println(
+            target.sourceAddress
+        );
+    }
+
+
+    Serial.println();
+
+
+    Serial.print(
+        "Flight State: "
+    );
+
+    Serial.println(
+        flightStatusName(
+            target.flightStatus
+        )
+    );
+
+
+    if (
+        target.hasPosition
+    ) {
+
+        if (
+            outputMode == MODE_PRIVATE
+        ) {
+
+            Serial.println(
+                "Position: VALID [REDACTED]"
+            );
+        }
+
+        else {
+
+            Serial.print(
+                "Latitude: "
+            );
+
+            Serial.println(
+                target.latitude,
+                7
+            );
+
+
+            Serial.print(
+                "Longitude: "
+            );
+
+            Serial.println(
+                target.longitude,
+                7
+            );
+        }
+    }
+
+    else {
+
+        Serial.println(
+            "Position: UNKNOWN"
+        );
+    }
+
+
+    Serial.print(
+        "Heading: "
+    );
+
+
+    if (
+        target.directionValid
+    ) {
+
+        Serial.print(
+            target.direction,
+            1
+        );
+
+        Serial.println(
+            " deg"
+        );
+    }
+
+    else {
+
+        Serial.println(
+            "UNKNOWN"
+        );
+    }
+
+
+    Serial.print(
+        "Horizontal Speed: "
+    );
+
+
+    if (
+        target.horizontalSpeedValid
+    ) {
+
+        Serial.print(
+            target.horizontalSpeed,
+            2
+        );
+
+        Serial.println(
+            " m/s"
+        );
+    }
+
+    else {
+
+        Serial.println(
+            "UNKNOWN"
+        );
+    }
+
+
+    Serial.print(
+        "Vertical Speed: "
+    );
+
+
+    if (
+        target.verticalSpeedValid
+    ) {
+
+        Serial.print(
+            target.verticalSpeed,
+            2
+        );
+
+        Serial.println(
+            " m/s"
+        );
+    }
+
+    else {
+
+        Serial.println(
+            "UNKNOWN"
+        );
+    }
+
+
+    Serial.println();
+
+
+    Serial.print(
+        "Barometric Altitude: "
+    );
+
+
+    if (
+        target.barometricAltitudeValid
+    ) {
+
+        Serial.print(
+            target.barometricAltitude,
+            2
+        );
+
+        Serial.println(
+            " m"
+        );
+    }
+
+    else {
+
+        Serial.println(
+            "UNKNOWN"
+        );
+    }
+
+
+    Serial.print(
+        "Geodetic Altitude: "
+    );
+
+
+    if (
+        target.geodeticAltitudeValid
+    ) {
+
+        Serial.print(
+            target.geodeticAltitude,
+            2
+        );
+
+        Serial.println(
+            " m"
+        );
+    }
+
+    else {
+
+        Serial.println(
+            "UNKNOWN"
+        );
+    }
+
+
+    Serial.print(
+        "Relative Height: "
+    );
+
+
+    if (
+        target.heightValid
+    ) {
+
+        Serial.print(
+            target.height,
+            2
+        );
+
+        Serial.println(
+            " m"
+        );
+    }
+
+    else {
+
+        Serial.println(
+            "UNKNOWN"
+        );
+    }
+
+
+    Serial.println();
+
+
+    // --------------------------------
+    // System message
+    // --------------------------------
+
+    if (
+        target.hasSystemData
+    ) {
+
+        Serial.println();
+
+        Serial.println(
+            "System Data:"
+        );
+
+
+        Serial.print(
+            "Operator Location Type: "
+        );
+
+        Serial.println(
+            operatorLocationTypeName(
+                target.operatorLocationType
+            )
+        );
+
+
+        Serial.print(
+            "Classification: "
+        );
+
+        Serial.println(
+            classificationTypeName(
+                target.classificationType
+            )
+        );
+
+
+        if (
+            target.hasSystemOperatorPosition
+        ) {
+
+            if (
+                outputMode == MODE_PRIVATE
+            ) {
+
+                Serial.println(
+                    "Operator Position: VALID [REDACTED]"
+                );
+            }
+
+            else {
+
+                Serial.print(
+                    "Operator Latitude: "
+                );
+
+                Serial.println(
+                    target.systemOperatorLatitude,
+                    7
+                );
+
+
+                Serial.print(
+                    "Operator Longitude: "
+                );
+
+                Serial.println(
+                    target.systemOperatorLongitude,
+                    7
+                );
+            }
+        }
+
+        else {
+
+            Serial.println(
+                "Operator Position: UNKNOWN"
+            );
+        }
+
+
+        Serial.print(
+            "Area Count: "
+        );
+
+        Serial.println(
+            target.areaCount
+        );
+
+
+        Serial.print(
+            "Area Radius: "
+        );
+
+        Serial.print(
+            target.areaRadius
+        );
+
+        Serial.println(
+            " m"
+        );
+
+
+        Serial.print(
+            "Area Ceiling: "
+        );
+
+        if (
+            target.areaCeilingValid
+        ) {
+
+            Serial.print(
+                target.areaCeiling,
+                2
+            );
+
+            Serial.println(
+                " m"
+            );
+        }
+
+        else {
+
+            Serial.println(
+                "UNKNOWN"
+            );
+        }
+
+
+        Serial.print(
+            "Area Floor: "
+        );
+
+        if (
+            target.areaFloorValid
+        ) {
+
+            Serial.print(
+                target.areaFloor,
+                2
+            );
+
+            Serial.println(
+                " m"
+            );
+        }
+
+        else {
+
+            Serial.println(
+                "UNKNOWN"
+            );
+        }
+
+
+        if (
+            target.classificationType == 1
+        ) {
+
+            Serial.print(
+                "EU Category: "
+            );
+
+            Serial.println(
+                categoryEUName(
+                    target.categoryEU
+                )
+            );
+
+
+            Serial.print(
+                "EU Class: "
+            );
+
+            Serial.println(
+                classEUName(
+                    target.classEU
+                )
+            );
+        }
+
+
+        Serial.print(
+            "Operator Geodetic Altitude: "
+        );
+
+        if (
+            target.operatorGeoAltitudeValid
+        ) {
+
+            Serial.print(
+                target.operatorGeoAltitude,
+                2
+            );
+
+            Serial.println(
+                " m"
+            );
+        }
+
+        else {
+
+            Serial.println(
+                "UNKNOWN"
+            );
+        }
+
+
+        Serial.print(
+            "System Timestamp: "
+        );
+
+        Serial.print(
+            target.systemTimestamp
+        );
+
+        Serial.println(
+            " s since 2019-01-01 UTC"
+        );
+    }
+
+
+    Serial.println();
+
+
+    Serial.print(
+        "RSSI Current: "
+    );
+
+    Serial.print(
+        target.currentRSSI
+    );
+
+    Serial.println(
+        " dBm"
+    );
+
+
+    Serial.print(
+        "RSSI Filtered: "
+    );
+
+    Serial.print(
+        getFilteredRSSI(
+            target
+        )
+    );
+
+    Serial.println(
+        " dBm"
+    );
+
+
+    Serial.println();
+
+
+    Serial.print(
+        "RID Packets: "
+    );
+
+    Serial.println(
+        target.packetCount
+    );
+
+
+    Serial.print(
+        "Basic ID Packets: "
+    );
+
+    Serial.println(
+        target.basicIDCount
+    );
+
+
+    Serial.print(
+        "Location Packets: "
+    );
+
+    Serial.println(
+        target.locationCount
+    );
+
+
+    Serial.print(
+        "System Packets: "
+    );
+
+    Serial.println(
+        target.systemCount
+    );
+
+
+    Serial.print(
+        "Operator ID Packets: "
+    );
+
+    Serial.println(
+        target.operatorIDCount
+    );
+
+
+    Serial.print(
+        "Last Seen: "
+    );
+
+    Serial.print(
+        millis()
+        -
+        target.lastSeenMs
+    );
+
+    Serial.println(
+        " ms ago"
+    );
+
+
+    Serial.print(
+        "Protocol: ODID v"
+    );
+
+    Serial.println(
+        target.protocolVersion
+    );
+
+
+    Serial.println(
+        "========================================"
+    );
+}
+
+
+void printAllTargetDetails() {
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+
+        if (
+            targets[i].allocated
+        ) {
+
+            printTargetDetail(
+                i
+            );
+        }
+    }
+}
+
+
+// ====================================================
+// SERIAL COMMANDS
+// ====================================================
+
+void processSerialCommands() {
+
+    static char commandBuffer[16];
+    static size_t commandLength = 0;
+    static bool discardUntilEOL = false;
+
+
+    while (
+        Serial.available() > 0
+    ) {
+
+        int incoming =
+            Serial.read();
+
+
+        if (
+            incoming < 0
+        ) {
+            continue;
+        }
+
+
+        char c =
+            (char)incoming;
+
+
+        if (
+            c == '\r'
+            ||
+            c == '\n'
+        ) {
+
+            if (
+                discardUntilEOL
+            ) {
+
+                discardUntilEOL = false;
+                commandLength = 0;
+                continue;
+            }
+
+
+            if (
+                commandLength == 0
+            ) {
+                continue;
+            }
+
+
+            commandBuffer[
+                commandLength
+            ] = '\0';
+
+
+            if (
+                commandLength == 1
+            ) {
+
+                char command =
+                    commandBuffer[0];
+
+
+                if (
+                    command == 'p'
+                    ||
+                    command == 'P'
+                ) {
+
+                    outputMode =
+                        MODE_PRIVATE;
+
+
+                    Serial.println();
+
+                    Serial.println(
+                        "*** OUTPUT MODE -> PRIVATE ***"
+                    );
+
+
+                    Serial.println(
+                        "Identifiers and coordinates redacted."
+                    );
+                }
+
+
+                else if (
+                    command == 'o'
+                    ||
+                    command == 'O'
+                ) {
+
+                    outputMode =
+                        MODE_OPEN;
+
+
+                    Serial.println();
+
+                    Serial.println(
+                        "*** OUTPUT MODE -> OPEN ***"
+                    );
+
+
+                    Serial.println(
+                        "Full identifiers and coordinates enabled."
+                    );
+                }
+
+
+                else if (
+                    command == 's'
+                    ||
+                    command == 'S'
+                ) {
+
+                    Serial.println();
+
+                    Serial.println(
+                        "*** MULTI-TARGET SNAPSHOT ***"
+                    );
+
+
+                    if (targetMutex != nullptr) {
+                        xSemaphoreTake(
+                            targetMutex,
+                            portMAX_DELAY
+                        );
+                    }
+
+                    printAllTargetDetails();
+
+                    if (targetMutex != nullptr) {
+                        xSemaphoreGive(
+                            targetMutex
+                        );
+                    }
+                }
+            }
+
+
+            commandLength = 0;
+            continue;
+        }
+
+
+        if (
+            discardUntilEOL
+        ) {
+            continue;
+        }
+
+
+        if (
+            commandLength <
+            sizeof(commandBuffer) - 1
+        ) {
+
+            commandBuffer[
+                commandLength++
+            ] = c;
+        }
+
+        else {
+
+            commandLength = 0;
+            discardUntilEOL = true;
+        }
+    }
+}
+
+
+// ====================================================
+// RESET CAPTURE STATE FOR A NEW HANDHELD TEST
+// Call only while BLE scanning is stopped.
+// ====================================================
+
+void resetRIDCaptureState() {
+
+    if (targetMutex != nullptr) {
+        xSemaphoreTake(
+            targetMutex,
+            portMAX_DELAY
+        );
+    }
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+        targets[i] = RIDTarget();
+    }
+
+    if (targetMutex != nullptr) {
+        xSemaphoreGive(
+            targetMutex
+        );
+    }
+
+    totalAdvertisements = 0;
+    remoteIDPackets = 0;
+    targetAllocationFailures = 0;
+    lastDashboardPrintMs = 0;
+
+    for (
+        uint8_t i = 0;
+        i < 16;
+        i++
+    ) {
+        messageTypeCounts[i] = 0;
+    }
+
+    scanCompletePending = false;
+    scanStopRequested = false;
+    scanStartedMs = 0;
+    scanWindowCount = 0;
+
+    if (
+        pBLEScan != nullptr
+        &&
+        !pBLEScan->isScanning()
+    ) {
+        pBLEScan->clearResults();
+    }
+}
+
+
+// ====================================================
+// BLE CALLBACK
+// ====================================================
+
+class RemoteIDCallbacks
+    :
+    public BLEAdvertisedDeviceCallbacks {
+
+    void onResult(
+        BLEAdvertisedDevice device
+    ) override {
+
+        totalAdvertisements++;
+
+
+        // =================================================
+        // ESP32-S3 / NimBLE RAW ADVERTISEMENT TRANSPORT
+        //
+        // ESP32 Arduino 3.3.11 NimBLE reuses advertiser
+        // objects and parseAdvertisement() accumulates parsed
+        // Service Data entries across duplicate reports.
+        //
+        // Scanner parsing is therefore disabled for the active
+        // S3 harness. getPayload() now represents only the
+        // current passive advertisement because setPayload()
+        // replaces the previous raw payload when append=false.
+        //
+        // Walk the current BLE AD structures directly and pass
+        // only validated 0xFFFA / 27-byte RID Service Data into
+        // the accepted RID decoder path below.
+        // =================================================
+
+        const uint8_t *payload =
+            device.getPayload();
+
+        size_t payloadLength =
+            device.getPayloadLength();
+
+
+        if (
+            payload != nullptr
+            &&
+            payloadLength > 0
+        ) {
+
+            size_t offset = 0;
+
+
+            while (
+                offset < payloadLength
+            ) {
+
+                uint8_t adLength =
+                    payload[offset];
+
+
+                // A zero-length field terminates the AD data.
+                if (
+                    adLength == 0
+                ) {
+
+                    break;
+                }
+
+
+                // adLength counts every byte after the length
+                // byte: one AD type byte plus the AD data.
+                size_t completeFieldLength =
+                    static_cast<size_t>(
+                        adLength
+                    )
+                    +
+                    1;
+
+
+                // Reject a malformed/truncated AD field before
+                // accessing anything beyond the current buffer.
+                if (
+                    completeFieldLength
+                    >
+                    (
+                        payloadLength
+                        -
+                        offset
+                    )
+                ) {
+
+                    break;
+                }
+
+
+                // Every non-zero AD structure contains a type.
+                uint8_t adType =
+                    payload[
+                        offset + 1
+                    ];
+
+
+                size_t adDataLength =
+                    static_cast<size_t>(
+                        adLength
+                    )
+                    -
+                    1;
+
+
+                const uint8_t *adData =
+                    payload
+                    +
+                    offset
+                    +
+                    2;
+
+
+                // Bluetooth AD Type 0x16:
+                // Service Data - 16-bit UUID.
+                if (
+                    adType == 0x16
+                    &&
+                    adDataLength >= 2
+                ) {
+
+                    // Bluetooth 16-bit UUID is little-endian
+                    // inside the Service Data AD structure.
+                    uint16_t serviceUUID =
+                        static_cast<uint16_t>(
+                            adData[0]
+                        )
+                        |
+                        (
+                            static_cast<uint16_t>(
+                                adData[1]
+                            )
+                            << 8
+                        );
+
+
+                    size_t serviceDataLength =
+                        adDataLength
+                        -
+                        2;
+
+
+                    const uint8_t *serviceDataBytes =
+                        adData
+                        +
+                        2;
+
+
+                    bool isRemoteIDUUID =
+                        serviceUUID
+                        ==
+                        0xFFFA;
+
+
+                    bool hasExpectedRemoteIDLength =
+                        serviceDataLength
+                        ==
+                        27;
+
+
+                    bool hasOpenDroneIDCode =
+
+                        serviceDataLength >= 1
+
+                        &&
+
+                        serviceDataBytes[0]
+                        ==
+                        0x0D;
+
+
+                    if (
+                        isRemoteIDUUID
+                        &&
+                        hasOpenDroneIDCode
+                        &&
+                        hasExpectedRemoteIDLength
+                    ) {
+
+                        // Preserve binary RID bytes exactly,
+                        // including any embedded zero values.
+                        String serviceData(
+                            reinterpret_cast<const char *>(
+                                serviceDataBytes
+                            ),
+                            serviceDataLength
+                        );
+
+
+                        remoteIDPackets++;
+
+
+                        String sourceAddress =
+                            device
+                            .getAddress()
+                            .toString()
+                            .c_str();
+
+
+                        if (targetMutex != nullptr) {
+                            xSemaphoreTake(
+                                targetMutex,
+                                portMAX_DELAY
+                            );
+                        }
+
+
+                        int targetIndex =
+                            findOrCreateTarget(
+                                sourceAddress
+                            );
+
+
+                        if (
+                            targetIndex < 0
+                        ) {
+
+                            if (targetMutex != nullptr) {
+                                xSemaphoreGive(
+                                    targetMutex
+                                );
+                            }
+
+                            offset +=
+                                completeFieldLength;
+
+                            continue;
+                        }
+
+
+                        RIDTarget &target =
+                            targets[
+                                targetIndex
+                            ];
+
+
+                        target.packetCount++;
+
+                        target.lastSeenMs =
+                            millis();
+
+
+                        addRSSISample(
+                            target,
+                            device.getRSSI()
+                        );
+
+
+                        uint8_t odidHeader =
+                            getByte(
+                                serviceData,
+                                2
+                            );
+
+
+                        uint8_t messageType =
+                            (
+                                odidHeader >> 4
+                            )
+                            &
+                            0x0F;
+
+
+                        uint8_t protocolVersion =
+                            odidHeader
+                            &
+                            0x0F;
+
+
+                        target.protocolVersion =
+                            protocolVersion;
+
+
+                        messageTypeCounts[
+                            messageType
+                        ]++;
+
+
+                        if (
+                            messageType == 0
+                        ) {
+
+                            updateBasicID(
+                                target,
+                                serviceData
+                            );
+                        }
+
+
+                        else if (
+                            messageType == 1
+                        ) {
+
+                            updateLocation(
+                                target,
+                                serviceData
+                            );
+                        }
+
+
+                        else if (
+                            messageType == 4
+                        ) {
+
+                            updateSystem(
+                                target,
+                                serviceData
+                            );
+                        }
+
+
+                        else if (
+                            messageType == 5
+                        ) {
+
+                            updateOperatorID(
+                                target,
+                                serviceData
+                            );
+                        }
+
+
+                        if (targetMutex != nullptr) {
+                            xSemaphoreGive(
+                                targetMutex
+                            );
+                        }
+                    }
+                }
+
+
+                offset +=
+                    completeFieldLength;
+            }
+        }
+
+
+        // Periodic dashboard output is intentionally NOT
+        // performed inside this BLE callback.
+        //
+        // serviceTargetDashboard() owns diagnostic output from
+        // the main loop so USB Serial can never hold up RF work.
+    }
+};
+
+
+RemoteIDCallbacks ridCallbacks;
+
+
+// ============================================================
+// STAGE 4B-B ASYNCHRONOUS BLE SCAN CONTROL
+// ============================================================
+
+void ridScanCompleteCallback(
+    BLEScanResults results
+) {
+    (void)results;
+
+    // Do not perform display/serial-heavy work inside
+    // the BLE completion callback. A completed BLE window is
+    // serviced from loop() and automatically rolled over unless
+    // the operator requested STOP/HOME.
+    scanCompletePending = true;
+}
+
+
+bool startRIDScanWindow(
+    bool newOperatorSession
+) {
+
+    if (pBLEScan == nullptr) {
+        Serial.println(
+            "[ERROR] BLE scanner is not initialized."
+        );
+
+        return false;
+    }
+
+    if (pBLEScan->isScanning()) {
+        Serial.println(
+            "[INFO] BLE scan window is already running."
+        );
+
+        return false;
+    }
+
+    scanCompletePending = false;
+
+    if (newOperatorSession) {
+        scanStopRequested = false;
+        scanStartedMs = millis();
+        scanWindowCount = 0;
+    }
+
+    bool started =
+        pBLEScan->start(
+            SCAN_WINDOW_SECONDS,
+            ridScanCompleteCallback,
+            false
+        );
+
+    if (started) {
+        scanSessionActive = true;
+        scanWindowCount++;
+
+        if (newOperatorSession) {
+            Serial.println(
+                "[SCAN] Operator-owned continuous RID session started."
+            );
+        }
+        else {
+            Serial.print(
+                "[SCAN] Continuous RID window rollover -> #"
+            );
+            Serial.println(scanWindowCount);
+        }
+    }
+    else {
+        if (newOperatorSession) {
+            scanSessionActive = false;
+        }
+
+        Serial.println(
+            "[ERROR] Asynchronous RID scan window failed to start."
+        );
+    }
+
+    return started;
+}
+
+
+bool startRIDScanAsync() {
+    return startRIDScanWindow(true);
+}
+
+
+bool continueRIDScanAsync() {
+
+    if (
+        pBLEScan == nullptr ||
+        !scanSessionActive ||
+        scanStopRequested
+    ) {
+        return false;
+    }
+
+    // A completed window can leave result objects allocated inside
+    // the BLE scanner. They are no longer needed because decoded RID
+    // state already lives in targets[]. Clearing them also prevents
+    // accumulation across a long-running handheld session.
+    if (!pBLEScan->isScanning()) {
+        pBLEScan->clearResults();
+    }
+
+    return startRIDScanWindow(false);
+}
+
+
+bool requestStopRIDScan() {
+
+    if (
+        pBLEScan == nullptr ||
+        !scanSessionActive
+    ) {
+        return false;
+    }
+
+    scanStopRequested = true;
+
+    bool stopped = true;
+
+    if (pBLEScan->isScanning()) {
+        stopped = pBLEScan->stop();
+    }
+
+    if (stopped) {
+        // Bluedroid does not need to fire the completion
+        // callback for our firmware to finish the session.
+        scanCompletePending = true;
+    }
+
+    return stopped;
+}
+
+
+void finalizeRIDScan() {
+
+    if (!scanSessionActive) {
+        scanCompletePending = false;
+        return;
+    }
+
+    scanSessionActive = false;
+    scanCompletePending = false;
+
+    Serial.println();
+    Serial.println(
+        "*** FINAL MULTI-TARGET SNAPSHOT ***"
+    );
+
+    printAllTargetDetails();
+
+    Serial.println();
+
+    if (scanStopRequested) {
+        Serial.println(
+            "=== RID CAPTURE STOPPED BY USER ==="
+        );
+    }
+    else {
+        // Defensive fallback only. Normal BLE window completion no
+        // longer finalizes an operator session in Stage 4B-B2C.
+        Serial.println(
+            "=== RID CAPTURE ENDED BY CONTROLLER ==="
+        );
+    }
+
+    Serial.print(
+        "Capture elapsed ms: "
+    );
+
+    Serial.println(
+        millis() - scanStartedMs
+    );
+
+    Serial.print(
+        "Continuous BLE scan windows started: "
+    );
+
+    Serial.println(
+        scanWindowCount
+    );
+
+    Serial.print(
+        "Total BLE advertisement callbacks: "
+    );
+
+    Serial.println(
+        totalAdvertisements
+    );
+
+    Serial.print(
+        "Validated Remote ID packets: "
+    );
+
+    Serial.println(
+        remoteIDPackets
+    );
+
+    Serial.print(
+        "Targets Tracked: "
+    );
+
+    Serial.println(
+        getTrackedTargetCount()
+    );
+
+    Serial.print(
+        "Target Allocation Failures: "
+    );
+
+    Serial.println(
+        targetAllocationFailures
+    );
+
+    Serial.println();
+    Serial.println(
+        "Remote ID message types observed:"
+    );
+
+    for (
+        int type = 0;
+        type < 16;
+        type++
+    ) {
+
+        if (
+            messageTypeCounts[type] > 0
+        ) {
+
+            Serial.print(
+                "Type "
+            );
+
+            Serial.print(
+                type
+            );
+
+            Serial.print(
+                " ("
+            );
+
+            Serial.print(
+                messageTypeName(type)
+            );
+
+            Serial.print(
+                "): "
+            );
+
+            Serial.println(
+                messageTypeCounts[type]
+            );
+        }
+    }
+
+    Serial.println();
+    Serial.println(
+        "=== END RID CAPTURE ==="
+    );
+
+    pBLEScan->clearResults();
+
+    scanStopRequested = false;
+}
+
+
+void serviceRIDScanState() {
+
+    if (!scanSessionActive) {
+        return;
+    }
+
+    bool underlyingWindowEnded =
+        scanCompletePending ||
+        (
+            pBLEScan != nullptr &&
+            !pBLEScan->isScanning()
+        );
+
+    if (!underlyingWindowEnded) {
+        return;
+    }
+
+    // STOP/HOME owns finalization. It must never be converted into
+    // an automatic rollover.
+    if (scanStopRequested) {
+        finalizeRIDScan();
+        return;
+    }
+
+    // Some BLE backends may report the completion callback a fraction
+    // before isScanning() flips false. Keep the pending flag set and
+    // let the next loop iteration perform the rollover safely.
+    if (
+        pBLEScan != nullptr &&
+        pBLEScan->isScanning()
+    ) {
+        return;
+    }
+
+    scanCompletePending = false;
+
+    if (!continueRIDScanAsync()) {
+        // Do not silently pretend the receiver is still listening.
+        // Preserve captured target data for inspection, but mark the
+        // session inactive so the UI accurately reflects the failure.
+        scanSessionActive = false;
+
+        Serial.println(
+            "[ERROR] Continuous RID rollover failed; scan session stopped."
+        );
+    }
+}
+
+
+// ============================================================
+// STAGE 4B-B2B RESCAN CONTROL
+// Privacy mode and selectedTarget are UI state and are deliberately
+// preserved. Target/counter data starts fresh.
+// ============================================================
+
+bool restartRIDScanFromUI() {
+    if (pBLEScan == nullptr) {
+        Serial.println("[UI ERROR] BLE scanner is not initialized.");
+        return false;
+    }
+
+    if (scanSessionActive) {
+        bool stopped = true;
+
+        if (pBLEScan->isScanning()) {
+            stopped = pBLEScan->stop();
+        }
+
+        if (!stopped) {
+            Serial.println("[UI ERROR] RESCAN could not stop active scan.");
+            return false;
+        }
+
+        // RESCAN is not STOP/HOME: retire the old session without printing
+        // its final report, then let the BLE host settle briefly.
+        scanSessionActive = false;
+        scanCompletePending = false;
+        scanStopRequested = false;
+
+        delay(50);
+        scanCompletePending = false;
+    }
+
+    resetRIDCaptureState();
+
+    bool started = startRIDScanAsync();
+
+    if (started) {
+        Serial.println("[SCAN] RESCAN started fresh RID capture.");
+    }
+
+    return started;
+}
+
+
+
+#if 0
+// ============================================================
+// CYD1 UI/HARDWARE BLOCK DISABLED FOR S3 BACKEND PARITY
+// ============================================================
+
+// ============================================================
+// STAGE 4B-B2A UNIFIED HANDHELD UI
+// STAGE 4B-B2B SNAPSHOT / RESCAN
+// STAGE 4B-B2C CONTINUOUS OPERATOR-OWNED SCAN
+// Validated Stage-2 homography + Stage-3 filtered touch input.
+// Real RID backend; synthetic target arrays removed.
+// ============================================================
+
+#define XPT2046_IRQ   36
+#define XPT2046_MOSI  32
+#define XPT2046_MISO  39
+#define XPT2046_CLK   25
+#define XPT2046_CS    33
+
+SPIClass touchSPI = SPIClass(VSPI);
+XPT2046_Touchscreen ts(
+    XPT2046_CS,
+    XPT2046_IRQ
+);
+TFT_eSPI tft = TFT_eSPI();
+
+const int PRESSURE_MIN = 200;
+const int TAP_SAMPLES  = 5;
+const int HIT_PADDING  = 5;
+
+// Validated CYD1 touch homography.
+const double h11 = 0.178699182386;
+const double h12 = 0.047115489245;
+const double h13 = -228.554894658;
+const double h21 = 0.048093676990;
+const double h22 = 0.138642946733;
+const double h23 = -227.381646595;
+const double h31 = 0.000113546161;
+const double h32 = 0.000081218131;
+
+const uint32_t LIVE_UI_REFRESH_MS = 1000;
+uint32_t lastLiveUIRefreshMs = 0;
+uint32_t scanGeneration = 0;
+uint32_t tapCounter = 0;
+uint8_t selectedTarget = 0;
+
+enum ScreenState {
+    SCREEN_HOME,
+    SCREEN_PRIVACY,
+    SCREEN_LIVE,
+    SCREEN_SNAPSHOT
+};
+
+ScreenState currentScreen = SCREEN_HOME;
+
+enum ButtonID {
+    BTN_NONE = -1,
+    BTN_BEGIN,
+    BTN_PRIVATE,
+    BTN_OPEN,
+    BTN_START_SCAN,
+    BTN_BACK_HOME,
+    BTN_SNAPSHOT,
+    BTN_RESCAN,
+    BTN_MODE_TOGGLE,
+    BTN_STOP,
+    BTN_TARGET_1,
+    BTN_TARGET_2,
+    BTN_TARGET_3,
+    BTN_TARGET_4,
+    BTN_BACK_LIVE
+};
+
+struct UIButton {
+    int x;
+    int y;
+    int w;
+    int h;
+    const char *label;
+};
+
+const UIButton buttonBegin = {
+    40, 90, 240, 56, "BEGIN TEST"
+};
+const UIButton buttonPrivate = {
+    15, 68, 135, 50, "PRIVATE"
+};
+const UIButton buttonOpen = {
+    170, 68, 135, 50, "OPEN"
+};
+const UIButton buttonStartScan = {
+    40, 138, 240, 48, "START SCAN"
+};
+const UIButton buttonBackHome = {
+    100, 198, 120, 32, "BACK"
+};
+const UIButton buttonSnapshot = {
+    12, 160, 140, 32, "SNAPSHOT"
+};
+const UIButton buttonRescan = {
+    168, 160, 140, 32, "RESCAN"
+};
+const UIButton buttonMode = {
+    12, 200, 140, 32, "MODE"
+};
+const UIButton buttonStop = {
+    168, 200, 140, 32, "STOP"
+};
+const UIButton buttonBackLive = {
+    80, 198, 160, 34, "BACK TO LIVE"
+};
+const UIButton buttonTarget1 = {
+    8, 42, 70, 30, "T01"
+};
+const UIButton buttonTarget2 = {
+    86, 42, 70, 30, "T02"
+};
+const UIButton buttonTarget3 = {
+    164, 42, 70, 30, "T03"
+};
+const UIButton buttonTarget4 = {
+    242, 42, 70, 30, "T04"
+};
+
+// Fixed-size UI copy avoids touching Arduino String objects while
+// the BLE callback may be updating the real target table.
+struct UITargetSnapshot {
+    bool allocated = false;
+
+    // Lifecycle frozen when this UI copy is captured:
+    // 0 = EMPTY, 1 = ACTIVE, 2 = STALE, 3 = LOST.
+    uint8_t stateCode = 0;
+
+    uint8_t uaType = 0;
+    uint8_t flightStatus = 0;
+    uint8_t protocolVersion = 0;
+
+    bool hasPosition = false;
+    double latitude = 0.0;
+    double longitude = 0.0;
+
+    bool directionValid = false;
+    float direction = 0.0f;
+
+    bool horizontalSpeedValid = false;
+    float horizontalSpeed = 0.0f;
+
+    bool verticalSpeedValid = false;
+    float verticalSpeed = 0.0f;
+
+    bool barometricAltitudeValid = false;
+    float barometricAltitude = 0.0f;
+
+    bool geodeticAltitudeValid = false;
+    float geodeticAltitude = 0.0f;
+
+    bool heightValid = false;
+    float height = 0.0f;
+    bool heightFromGround = false;
+
+    int currentRSSI = 0;
+    int filteredRSSI = 0;
+
+    uint32_t packetCount = 0;
+    uint32_t basicIDCount = 0;
+    uint32_t locationCount = 0;
+    uint32_t systemCount = 0;
+    uint32_t operatorIDCount = 0;
+    uint32_t lastSeenMs = 0;
+
+    bool displayIDValid = false;
+    char displayID[32] = {0};
+};
+
+// The snapshot screen uses this fixed copy. targets[] continues updating
+// in the BLE callback while the on-screen snapshot stays unchanged.
+UITargetSnapshot frozenSnapshot;
+bool frozenSnapshotCaptured = false;
+uint8_t frozenSnapshotTarget = 0;
+OutputMode frozenSnapshotMode = MODE_PRIVATE;
+uint32_t frozenSnapshotCapturedMs = 0;
+
+// ============================================================
+// STAGE 4B-B2A FIX 1: EXPLICIT UI PROTOTYPES
+//
+// Arduino's .ino preprocessor auto-generates function prototypes.
+// Functions below use custom UI types, so declare them explicitly
+// after those types are fully defined. This prevents the generated
+// prototypes from referring to UITargetSnapshot / UIButton / ButtonID
+// before those types are known to the compiler.
+// ============================================================
+
+bool captureUITargetSnapshot(
+    uint8_t index,
+    UITargetSnapshot &snapshot
+);
+
+const char *uiTargetStateName(
+    const UITargetSnapshot &snapshot
+);
+
+uint16_t uiTargetStateColor(
+    const UITargetSnapshot &snapshot
+);
+
+bool pointInside(
+    double screenX,
+    double screenY,
+    const UIButton &button
+);
+
+void drawButton(
+    const UIButton &button,
+    bool selected
+);
+
+void drawTargetTab(
+    const UIButton &button,
+    uint8_t index
+);
+
+ButtonID hitTestCurrentScreen(
+    double x,
+    double y
+);
+
+void logButtonEvent(
+    ButtonID button,
+    double x,
+    double y
+);
+
+void processButton(
+    ButtonID button
+);
+
+void drawSnapshotScreen();
+bool restartRIDScanFromUI();
+
+bool captureUITargetSnapshot(
+    uint8_t index,
+    UITargetSnapshot &snapshot
+) {
+    snapshot = UITargetSnapshot();
+
+    if (index >= MAX_TARGETS) {
+        return false;
+    }
+
+    if (targetMutex != nullptr) {
+        xSemaphoreTake(targetMutex, portMAX_DELAY);
+    }
+
+    RIDTarget &target = targets[index];
+    snapshot.allocated = target.allocated;
+
+    if (target.allocated) {
+        uint32_t age = millis() - target.lastSeenMs;
+
+        if (age <= TARGET_ACTIVE_MS) {
+            snapshot.stateCode = 1;
+        }
+        else if (age <= TARGET_STALE_MS) {
+            snapshot.stateCode = 2;
+        }
+        else {
+            snapshot.stateCode = 3;
+        }
+
+        snapshot.uaType = target.uaType;
+        snapshot.flightStatus = target.flightStatus;
+        snapshot.protocolVersion = target.protocolVersion;
+
+        snapshot.hasPosition = target.hasPosition;
+        snapshot.latitude = target.latitude;
+        snapshot.longitude = target.longitude;
+
+        snapshot.directionValid = target.directionValid;
+        snapshot.direction = target.direction;
+
+        snapshot.horizontalSpeedValid = target.horizontalSpeedValid;
+        snapshot.horizontalSpeed = target.horizontalSpeed;
+
+        snapshot.verticalSpeedValid = target.verticalSpeedValid;
+        snapshot.verticalSpeed = target.verticalSpeed;
+
+        snapshot.barometricAltitudeValid = target.barometricAltitudeValid;
+        snapshot.barometricAltitude = target.barometricAltitude;
+
+        snapshot.geodeticAltitudeValid = target.geodeticAltitudeValid;
+        snapshot.geodeticAltitude = target.geodeticAltitude;
+
+        snapshot.heightValid = target.heightValid;
+        snapshot.height = target.height;
+        snapshot.heightFromGround = target.heightFromGround;
+
+        snapshot.currentRSSI = target.currentRSSI;
+        snapshot.filteredRSSI = getFilteredRSSI(target);
+
+        snapshot.packetCount = target.packetCount;
+        snapshot.basicIDCount = target.basicIDCount;
+        snapshot.locationCount = target.locationCount;
+        snapshot.systemCount = target.systemCount;
+        snapshot.operatorIDCount = target.operatorIDCount;
+        snapshot.lastSeenMs = target.lastSeenMs;
+
+        const char *idText = nullptr;
+
+        if (target.hasSerialID) {
+            idText = target.serialID.c_str();
+        }
+        else if (target.hasRegistrationID) {
+            idText = target.registrationID.c_str();
+        }
+        else if (target.hasOperatorID) {
+            idText = target.operatorID.c_str();
+        }
+
+        if (idText != nullptr) {
+            snprintf(
+                snapshot.displayID,
+                sizeof(snapshot.displayID),
+                "%s",
+                idText
+            );
+            snapshot.displayIDValid = true;
+        }
+    }
+
+    if (targetMutex != nullptr) {
+        xSemaphoreGive(targetMutex);
+    }
+
+    return snapshot.allocated;
+}
+
+const char *uiTargetStateName(
+    const UITargetSnapshot &snapshot
+) {
+    switch (snapshot.stateCode) {
+        case 1: return "ACTIVE";
+        case 2: return "STALE";
+        case 3: return "LOST";
+        default: return "EMPTY";
+    }
+}
+
+uint16_t uiTargetStateColor(
+    const UITargetSnapshot &snapshot
+) {
+    switch (snapshot.stateCode) {
+        case 1: return TFT_GREEN;
+        case 2: return TFT_YELLOW;
+        case 3: return TFT_RED;
+        default: return TFT_WHITE;
+    }
+}
+
+int medianValues(
+    int values[],
+    int count
+) {
+    int temp[TAP_SAMPLES];
+
+    for (int i = 0; i < count; i++) {
+        temp[i] = values[i];
+    }
+
+    for (int i = 0; i < count - 1; i++) {
+        for (int j = i + 1; j < count; j++) {
+            if (temp[j] < temp[i]) {
+                int swapValue = temp[i];
+                temp[i] = temp[j];
+                temp[j] = swapValue;
+            }
+        }
+    }
+
+    return temp[count / 2];
+}
+
+bool mapTouchToScreen(
+    double rawTouchX,
+    double rawTouchY,
+    double &screenX,
+    double &screenY
+) {
+    double denominator =
+        h31 * rawTouchX
+        + h32 * rawTouchY
+        + 1.0;
+
+    if (fabs(denominator) < 0.000001) {
+        return false;
+    }
+
+    screenX =
+        (
+            h11 * rawTouchX
+            + h12 * rawTouchY
+            + h13
+        ) / denominator;
+
+    screenY =
+        (
+            h21 * rawTouchX
+            + h22 * rawTouchY
+            + h23
+        ) / denominator;
+
+    return true;
+}
+
+void waitForRelease() {
+    unsigned long startTime = millis();
+
+    while (
+        ts.touched()
+        && millis() - startTime < 2500
+    ) {
+        delay(10);
+    }
+
+    delay(80);
+}
+
+bool captureFilteredTap(
+    int &medianX,
+    int &medianY,
+    int &medianZ
+) {
+    if (!ts.tirqTouched() || !ts.touched()) {
+        return false;
+    }
+
+    int sampleX[TAP_SAMPLES];
+    int sampleY[TAP_SAMPLES];
+    int sampleZ[TAP_SAMPLES];
+    int validSamples = 0;
+    unsigned long captureStart = millis();
+
+    while (
+        ts.touched()
+        && validSamples < TAP_SAMPLES
+        && millis() - captureStart < 400
+    ) {
+        TS_Point p = ts.getPoint();
+
+        if (p.z >= PRESSURE_MIN) {
+            sampleX[validSamples] = p.x;
+            sampleY[validSamples] = p.y;
+            sampleZ[validSamples] = p.z;
+            validSamples++;
+        }
+
+        delay(10);
+    }
+
+    waitForRelease();
+
+    if (validSamples < 3) {
+        return false;
+    }
+
+    medianX = medianValues(sampleX, validSamples);
+    medianY = medianValues(sampleY, validSamples);
+    medianZ = medianValues(sampleZ, validSamples);
+
+    return true;
+}
+
+bool pointInside(
+    double screenX,
+    double screenY,
+    const UIButton &button
+) {
+    return (
+        screenX >= button.x - HIT_PADDING
+        && screenX <= button.x + button.w + HIT_PADDING
+        && screenY >= button.y - HIT_PADDING
+        && screenY <= button.y + button.h + HIT_PADDING
+    );
+}
+
+void drawButton(
+    const UIButton &button,
+    bool selected = false
+) {
+    uint16_t fillColor = TFT_DARKGREY;
+    uint16_t borderColor = TFT_WHITE;
+
+    if (selected) {
+        fillColor = TFT_BLUE;
+        borderColor = TFT_CYAN;
+    }
+
+    tft.fillRoundRect(
+        button.x,
+        button.y,
+        button.w,
+        button.h,
+        6,
+        fillColor
+    );
+
+    tft.drawRoundRect(
+        button.x,
+        button.y,
+        button.w,
+        button.h,
+        6,
+        borderColor
+    );
+
+    tft.setTextColor(
+        TFT_WHITE,
+        fillColor
+    );
+
+    tft.drawCentreString(
+        button.label,
+        button.x + button.w / 2,
+        button.y + button.h / 2 - 7,
+        2
+    );
+}
+
+void drawHeader(
+    const char *title
+) {
+    tft.setTextColor(
+        TFT_WHITE,
+        TFT_BLACK
+    );
+    tft.drawCentreString(
+        title,
+        160,
+        5,
+        2
+    );
+}
+
+void drawTargetTab(
+    const UIButton &button,
+    uint8_t index
+) {
+    UITargetSnapshot snapshot;
+    captureUITargetSnapshot(
+        index,
+        snapshot
+    );
+
+    bool selected =
+        selectedTarget == index;
+
+    uint16_t fillColor =
+        selected ? TFT_BLUE : TFT_BLACK;
+
+    uint16_t borderColor =
+        selected
+        ? TFT_CYAN
+        : uiTargetStateColor(snapshot);
+
+    tft.fillRoundRect(
+        button.x,
+        button.y,
+        button.w,
+        button.h,
+        5,
+        fillColor
+    );
+    tft.drawRoundRect(
+        button.x,
+        button.y,
+        button.w,
+        button.h,
+        5,
+        borderColor
+    );
+    tft.setTextColor(
+        TFT_WHITE,
+        fillColor
+    );
+    tft.drawCentreString(
+        button.label,
+        button.x + button.w / 2,
+        button.y + 7,
+        2
+    );
+}
+
+void drawHomeScreen() {
+    tft.fillScreen(TFT_BLACK);
+    drawHeader("REMOTE ID SENSOR");
+
+    tft.setTextColor(TFT_CYAN, TFT_BLACK);
+    tft.drawCentreString(
+        "CYD1 HANDHELD",
+        160,
+        35,
+        2
+    );
+
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.drawCentreString(
+        "Passive RID Detection",
+        160,
+        60,
+        1
+    );
+
+    drawButton(buttonBegin);
+
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.drawCentreString(
+        "SYSTEM READY",
+        160,
+        170,
+        2
+    );
+
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.drawCentreString(
+        "Touch BEGIN TEST",
+        160,
+        200,
+        1
+    );
+}
+
+void drawPrivacyScreen() {
+    tft.fillScreen(TFT_BLACK);
+    drawHeader("SELECT OUTPUT MODE");
+
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.drawCentreString(
+        "PRIVATE is default",
+        160,
+        35,
+        1
+    );
+
+    bool privateSelected =
+        outputMode == MODE_PRIVATE;
+
+    drawButton(
+        buttonPrivate,
+        privateSelected
+    );
+    drawButton(
+        buttonOpen,
+        !privateSelected
+    );
+    drawButton(buttonStartScan);
+    drawButton(buttonBackHome);
+}
+
+void drawLiveScreen() {
+    tft.fillScreen(TFT_BLACK);
+    drawHeader("REMOTE ID - LIVE");
+
+    bool privateSelected =
+        outputMode == MODE_PRIVATE;
+
+    tft.setTextColor(
+        privateSelected ? TFT_CYAN : TFT_YELLOW,
+        TFT_BLACK
+    );
+    tft.drawString(
+        privateSelected ? "PRIVATE" : "OPEN",
+        10,
+        26,
+        1
+    );
+
+    const char *scanText =
+        scanSessionActive
+        ? "SCANNING"
+        : (
+            scanGeneration > 0
+            ? "SCAN DONE"
+            : "IDLE"
+        );
+
+    tft.setTextColor(
+        scanSessionActive ? TFT_GREEN : TFT_YELLOW,
+        TFT_BLACK
+    );
+    tft.drawRightString(
+        scanText,
+        310,
+        26,
+        1
+    );
+
+    drawTargetTab(buttonTarget1, 0);
+    drawTargetTab(buttonTarget2, 1);
+    drawTargetTab(buttonTarget3, 2);
+    drawTargetTab(buttonTarget4, 3);
+
+    UITargetSnapshot snapshot;
+    captureUITargetSnapshot(
+        selectedTarget,
+        snapshot
+    );
+
+    String targetName =
+        String("T0")
+        + String(selectedTarget + 1);
+
+    tft.setTextColor(
+        uiTargetStateColor(snapshot),
+        TFT_BLACK
+    );
+
+    if (!snapshot.allocated) {
+        tft.drawString(
+            targetName + "  EMPTY",
+            10,
+            80,
+            1
+        );
+
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
+        tft.drawString(
+            "WAITING FOR RID TARGET",
+            10,
+            106,
+            1
+        );
+        tft.drawString(
+            "SELECT T01-T04",
+            10,
+            124,
+            1
+        );
+    }
+    else {
+        String line1 =
+            targetName
+            + "  "
+            + uiTargetStateName(snapshot)
+            + "  "
+            + uaTypeName(snapshot.uaType);
+
+        tft.drawString(
+            line1,
+            10,
+            80,
+            1
+        );
+
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
+        String line2 =
+            String("RSSI: ")
+            + String(snapshot.filteredRSSI)
+            + " dBm   "
+            + flightStatusName(snapshot.flightStatus);
+        tft.drawString(line2, 10, 96, 1);
+
+        String headingText =
+            snapshot.directionValid
+            ? String(snapshot.direction, 0)
+            : String("UNK");
+
+        String line3 =
+            String("POS: ")
+            + (snapshot.hasPosition ? "VALID" : "UNKNOWN")
+            + "   HDG: "
+            + headingText;
+        tft.drawString(line3, 10, 112, 1);
+
+        String hSpeedText =
+            snapshot.horizontalSpeedValid
+            ? String(snapshot.horizontalSpeed, 1)
+            : String("UNK");
+        String vSpeedText =
+            snapshot.verticalSpeedValid
+            ? String(snapshot.verticalSpeed, 1)
+            : String("UNK");
+
+        String line4 =
+            String("HSPD: ")
+            + hSpeedText
+            + "   VSPD: "
+            + vSpeedText;
+        tft.drawString(line4, 10, 128, 1);
+
+        String line5;
+        if (privateSelected) {
+            line5 = "ID: [REDACTED]";
+        }
+        else if (snapshot.displayIDValid) {
+            line5 =
+                String("ID: ")
+                + snapshot.displayID;
+        }
+        else {
+            line5 = "ID: <not provided>";
+        }
+        tft.drawString(line5, 10, 144, 1);
+    }
+
+    drawButton(buttonSnapshot);
+    drawButton(buttonRescan);
+
+    UIButton modeButton = buttonMode;
+    modeButton.label =
+        privateSelected
+        ? "SWITCH OPEN"
+        : "SWITCH PRIVATE";
+    drawButton(modeButton);
+    drawButton(buttonStop);
+}
+
+void drawSnapshotScreen() {
+    tft.fillScreen(TFT_BLACK);
+    drawHeader("TARGET SNAPSHOT");
+
+    bool privateSnapshot =
+        frozenSnapshotMode == MODE_PRIVATE;
+
+    String targetName =
+        String("T0")
+        + String(frozenSnapshotTarget + 1);
+
+    tft.setTextColor(
+        uiTargetStateColor(frozenSnapshot),
+        TFT_BLACK
+    );
+
+    String titleLine =
+        targetName
+        + "  "
+        + uiTargetStateName(frozenSnapshot)
+        + "  "
+        + (privateSnapshot ? "PRIVATE" : "OPEN");
+
+    tft.drawString(titleLine, 12, 32, 2);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
+    if (!frozenSnapshotCaptured || !frozenSnapshot.allocated) {
+        tft.drawString(
+            "NO ALLOCATED TARGET AT SNAPSHOT",
+            12,
+            82,
+            1
+        );
+        tft.drawString(
+            "BACK returns to live receiver",
+            12,
+            104,
+            1
+        );
+        drawButton(buttonBackLive);
+        return;
+    }
+
+    tft.drawString(
+        String("TYPE: ") + uaTypeName(frozenSnapshot.uaType),
+        12, 58, 1
+    );
+
+    tft.drawString(
+        String("FLIGHT: ")
+        + flightStatusName(frozenSnapshot.flightStatus)
+        + "  RSSI: "
+        + String(frozenSnapshot.filteredRSSI),
+        12, 74, 1
+    );
+
+    String headingText =
+        frozenSnapshot.directionValid
+        ? String(frozenSnapshot.direction, 0)
+        : String("UNK");
+    tft.drawString(
+        String("HDG: ") + headingText,
+        12, 90, 1
+    );
+
+    String hSpeedText =
+        frozenSnapshot.horizontalSpeedValid
+        ? String(frozenSnapshot.horizontalSpeed, 1)
+        : String("UNK");
+    String vSpeedText =
+        frozenSnapshot.verticalSpeedValid
+        ? String(frozenSnapshot.verticalSpeed, 1)
+        : String("UNK");
+    tft.drawString(
+        String("HSPD: ")
+        + hSpeedText
+        + "  VSPD: "
+        + vSpeedText,
+        12, 106, 1
+    );
+
+    String idLine;
+    if (!frozenSnapshot.displayIDValid) {
+        idLine = "ID: <not provided>";
+    }
+    else if (privateSnapshot) {
+        idLine = "ID: [REDACTED]";
+    }
+    else {
+        idLine = String("ID: ") + frozenSnapshot.displayID;
+    }
+    tft.drawString(idLine, 12, 122, 1);
+
+    String positionLine;
+    if (!frozenSnapshot.hasPosition) {
+        positionLine = "POS: UNKNOWN";
+    }
+    else if (privateSnapshot) {
+        positionLine = "POS: VALID [REDACTED]";
+    }
+    else {
+        positionLine =
+            String("POS: ")
+            + String(frozenSnapshot.latitude, 6)
+            + ","
+            + String(frozenSnapshot.longitude, 6);
+    }
+    tft.drawString(positionLine, 12, 138, 1);
+
+    String altitudeLine = "ALT G:";
+    altitudeLine +=
+        frozenSnapshot.geodeticAltitudeValid
+        ? String(frozenSnapshot.geodeticAltitude, 1)
+        : String("UNK");
+    altitudeLine += " R:";
+    altitudeLine +=
+        frozenSnapshot.heightValid
+        ? String(frozenSnapshot.height, 1)
+        : String("UNK");
+    tft.drawString(altitudeLine, 12, 154, 1);
+
+    tft.drawString(
+        String("PKTS: ")
+        + String(frozenSnapshot.packetCount)
+        + "  ODID v"
+        + String(frozenSnapshot.protocolVersion),
+        12, 170, 1
+    );
+
+    drawButton(buttonBackLive);
+}
+
+void drawCurrentScreen() {
+    switch (currentScreen) {
+        case SCREEN_HOME:
+            drawHomeScreen();
+            break;
+        case SCREEN_PRIVACY:
+            drawPrivacyScreen();
+            break;
+        case SCREEN_LIVE:
+            drawLiveScreen();
+            break;
+        case SCREEN_SNAPSHOT:
+            drawSnapshotScreen();
+            break;
+    }
+}
+
+ButtonID hitTestCurrentScreen(
+    double x,
+    double y
+) {
+    switch (currentScreen) {
+        case SCREEN_HOME:
+            if (pointInside(x, y, buttonBegin)) {
+                return BTN_BEGIN;
+            }
+            break;
+
+        case SCREEN_PRIVACY:
+            if (pointInside(x, y, buttonPrivate)) {
+                return BTN_PRIVATE;
+            }
+            if (pointInside(x, y, buttonOpen)) {
+                return BTN_OPEN;
+            }
+            if (pointInside(x, y, buttonStartScan)) {
+                return BTN_START_SCAN;
+            }
+            if (pointInside(x, y, buttonBackHome)) {
+                return BTN_BACK_HOME;
+            }
+            break;
+
+        case SCREEN_LIVE:
+            if (pointInside(x, y, buttonTarget1)) {
+                return BTN_TARGET_1;
+            }
+            if (pointInside(x, y, buttonTarget2)) {
+                return BTN_TARGET_2;
+            }
+            if (pointInside(x, y, buttonTarget3)) {
+                return BTN_TARGET_3;
+            }
+            if (pointInside(x, y, buttonTarget4)) {
+                return BTN_TARGET_4;
+            }
+            if (pointInside(x, y, buttonSnapshot)) {
+                return BTN_SNAPSHOT;
+            }
+            if (pointInside(x, y, buttonRescan)) {
+                return BTN_RESCAN;
+            }
+            if (pointInside(x, y, buttonMode)) {
+                return BTN_MODE_TOGGLE;
+            }
+            if (pointInside(x, y, buttonStop)) {
+                return BTN_STOP;
+            }
+            break;
+
+        case SCREEN_SNAPSHOT:
+            if (pointInside(x, y, buttonBackLive)) {
+                return BTN_BACK_LIVE;
+            }
+            break;
+    }
+
+    return BTN_NONE;
+}
+
+void logButtonEvent(
+    ButtonID button,
+    double x,
+    double y
+) {
+    tapCounter++;
+
+    Serial.print("[UI] tap=");
+    Serial.print(tapCounter);
+    Serial.print(" button=");
+    Serial.print(static_cast<int>(button));
+    Serial.print(" x=");
+    Serial.print(x, 1);
+    Serial.print(" y=");
+    Serial.print(y, 1);
+    Serial.print(" mode=");
+    Serial.println(
+        outputMode == MODE_PRIVATE
+        ? "PRIVATE"
+        : "OPEN"
+    );
+}
+
+void processButton(
+    ButtonID button
+) {
+    bool redraw = true;
+
+    switch (button) {
+        case BTN_BEGIN:
+            selectedTarget = 0;
+            frozenSnapshotCaptured = false;
+            outputMode = MODE_PRIVATE;
+            currentScreen = SCREEN_PRIVACY;
+            Serial.println("ACTION: BEGIN TEST");
+            break;
+
+        case BTN_PRIVATE:
+            outputMode = MODE_PRIVATE;
+            Serial.println("ACTION: PRIVATE");
+            break;
+
+        case BTN_OPEN:
+            outputMode = MODE_OPEN;
+            Serial.println("ACTION: OPEN");
+            break;
+
+        case BTN_START_SCAN:
+            if (scanSessionActive) {
+                Serial.println("[UI] Scan already active.");
+                break;
+            }
+
+            resetRIDCaptureState();
+            frozenSnapshotCaptured = false;
+
+            if (startRIDScanAsync()) {
+                scanGeneration++;
+                selectedTarget = 0;
+                currentScreen = SCREEN_LIVE;
+                Serial.println("ACTION: START SCAN");
+            }
+            else {
+                Serial.println("[UI ERROR] START SCAN failed.");
+            }
+            break;
+
+        case BTN_BACK_HOME:
+            currentScreen = SCREEN_HOME;
+            Serial.println("ACTION: BACK HOME");
+            break;
+
+        case BTN_MODE_TOGGLE:
+            outputMode =
+                outputMode == MODE_PRIVATE
+                ? MODE_OPEN
+                : MODE_PRIVATE;
+            Serial.println("ACTION: MODE TOGGLE");
+            break;
+
+        case BTN_TARGET_1:
+            selectedTarget = 0;
+            Serial.println("ACTION: SELECT T01");
+            break;
+
+        case BTN_TARGET_2:
+            selectedTarget = 1;
+            Serial.println("ACTION: SELECT T02");
+            break;
+
+        case BTN_TARGET_3:
+            selectedTarget = 2;
+            Serial.println("ACTION: SELECT T03");
+            break;
+
+        case BTN_TARGET_4:
+            selectedTarget = 3;
+            Serial.println("ACTION: SELECT T04");
+            break;
+
+        case BTN_STOP:
+            if (scanSessionActive) {
+                requestStopRIDScan();
+            }
+            currentScreen = SCREEN_HOME;
+            Serial.println("ACTION: STOP / HOME");
+            break;
+
+        case BTN_SNAPSHOT:
+            frozenSnapshotTarget = selectedTarget;
+            frozenSnapshotMode = outputMode;
+            frozenSnapshotCapturedMs = millis();
+            frozenSnapshotCaptured =
+                captureUITargetSnapshot(
+                    selectedTarget,
+                    frozenSnapshot
+                );
+            currentScreen = SCREEN_SNAPSHOT;
+            Serial.print("ACTION: SNAPSHOT T0");
+            Serial.print(selectedTarget + 1);
+            Serial.println(
+                frozenSnapshotCaptured
+                ? " FROZEN"
+                : " EMPTY"
+            );
+            break;
+
+        case BTN_RESCAN:
+            // Preserve selectedTarget and outputMode across the restart.
+            frozenSnapshotCaptured = false;
+
+            if (restartRIDScanFromUI()) {
+                scanGeneration++;
+                Serial.println("ACTION: RESCAN");
+            }
+            else {
+                Serial.println("[UI ERROR] RESCAN failed.");
+            }
+            break;
+
+        case BTN_BACK_LIVE:
+            currentScreen = SCREEN_LIVE;
+            Serial.println("ACTION: BACK TO LIVE");
+            break;
+
+        default:
+            redraw = false;
+            Serial.println("ACTION: NONE");
+            break;
+    }
+
+    if (redraw) {
+        drawCurrentScreen();
+        lastLiveUIRefreshMs = millis();
+    }
+}
+
+void serviceTouchUI() {
+    int rawX = 0;
+    int rawY = 0;
+    int rawZ = 0;
+
+    if (!captureFilteredTap(rawX, rawY, rawZ)) {
+        return;
+    }
+
+    double screenX = 0.0;
+    double screenY = 0.0;
+
+    if (
+        !mapTouchToScreen(
+            rawX,
+            rawY,
+            screenX,
+            screenY
+        )
+    ) {
+        Serial.println("ERROR: TOUCH MAP");
+        return;
+    }
+
+    ButtonID button =
+        hitTestCurrentScreen(
+            screenX,
+            screenY
+        );
+
+    logButtonEvent(
+        button,
+        screenX,
+        screenY
+    );
+
+    processButton(button);
+}
+
+void serviceLiveUIRefresh() {
+    if (currentScreen != SCREEN_LIVE) {
+        return;
+    }
+
+    if (
+        millis() - lastLiveUIRefreshMs
+        < LIVE_UI_REFRESH_MS
+    ) {
+        return;
+    }
+
+    drawLiveScreen();
+    lastLiveUIRefreshMs = millis();
+}
+
+
+// ====================================================
+// SETUP
+// ====================================================
+
+void setup() {
+
+    Serial.begin(115200);
+    delay(STARTUP_DELAY_MS);
+
+    targetMutex =
+        xSemaphoreCreateMutex();
+
+    if (targetMutex == nullptr) {
+        Serial.println(
+            "[FATAL] target mutex allocation failed."
+        );
+    }
+
+    // Validated CYD1 touch/display initialization.
+    touchSPI.begin(
+        XPT2046_CLK,
+        XPT2046_MISO,
+        XPT2046_MOSI,
+        XPT2046_CS
+    );
+    ts.begin(touchSPI);
+    ts.setRotation(1);
+
+    tft.init();
+    tft.setRotation(1);
+
+    outputMode = MODE_PRIVATE;
+    currentScreen = SCREEN_HOME;
+
+    // BLE is initialized at boot, but scanning is operator-started.
+    BLEDevice::init("");
+    pBLEScan = BLEDevice::getScan();
+    pBLEScan->setActiveScan(false);
+    pBLEScan->setInterval(100);
+    pBLEScan->setWindow(99);
+    pBLEScan->setAdvertisedDeviceCallbacks(
+        &ridCallbacks,
+        true
+    );
+
+    Serial.println();
+    Serial.println(
+        "========================================"
+    );
+    Serial.println(
+        " CYD1 RID HANDHELD - STAGE 4B-B2C"
+    );
+    Serial.println(
+        " UI + RID + SNAPSHOT + CONTINUOUS SCAN"
+    );
+    Serial.println(
+        "========================================"
+    );
+    Serial.println(
+        "Boot state: HOME / BLE IDLE / PRIVATE"
+    );
+    Serial.println(
+        "Touch START SCAN; operator STOP/HOME ends capture."
+    );
+
+    drawCurrentScreen();
+}
+
+
+// ====================================================
+// LOOP
+// ====================================================
+
+void loop() {
+
+    processSerialCommands();
+    serviceRIDScanState();
+    serviceTouchUI();
+    serviceLiveUIRefresh();
+
+    delay(15);
+}
+
+
+#endif  // CYD1 UI/HARDWARE BLOCK DISABLED
+
+
+// ============================================================
+// WAVESHARE ESP32-S3-TOUCH-LCD-3.5 DISPLAY LAYER
+// DISPLAY ONLY — TOUCH NOT YET ENABLED
+// ============================================================
+
+#define WS_GFX_BL       6
+
+#define WS_SPI_MISO     2
+#define WS_SPI_MOSI     1
+#define WS_SPI_SCLK     5
+
+#define WS_LCD_CS      -1
+#define WS_LCD_DC       3
+#define WS_LCD_RST     -1
+
+#define WS_LCD_HOR_RES 320
+#define WS_LCD_VER_RES 480
+
+#define WS_I2C_SDA      8
+#define WS_I2C_SCL      7
+
+
+TCA9554 wsTCA(0x20);
+
+Arduino_DataBus *wsBus = new Arduino_ESP32SPI(
+    WS_LCD_DC,
+    WS_LCD_CS,
+    WS_SPI_SCLK,
+    WS_SPI_MOSI,
+    WS_SPI_MISO
+);
+
+Arduino_GFX *wsGfx = new Arduino_ST7796(
+    wsBus,
+    WS_LCD_RST,
+    0,
+    true,
+    WS_LCD_HOR_RES,
+    WS_LCD_VER_RES
+);
+
+TouchDrvFT6X36 wsTouch;
+
+uint32_t wsLastTouchPollMs = 0;
+const uint32_t WS_TOUCH_POLL_MS = 10;
+
+bool wsTouchWasDown = false;
+
+int16_t wsTouchLastX = -1;
+int16_t wsTouchLastY = -1;
+
+
+void wsLcdReset() {
+
+    wsTCA.write1(1, 1);
+    delay(10);
+
+    wsTCA.write1(1, 0);
+    delay(10);
+
+    wsTCA.write1(1, 1);
+    delay(200);
+}
+
+
+// ============================================================
+// WAVESHARE HANDHELD UI SHELL
+// STAGE 1B-B — REAL SESSION OWNERSHIP
+//
+// PRIVATE / OPEN, START SCAN, MODE, and STOP / HOME
+// now control the validated RID backend.
+//
+// SNAPSHOT uses a dedicated frozen-data screen.
+// TARGET rendering and RADAR readiness remain isolated for
+// later controlled integration.
+//
+// FINAL DIRECTION:
+//   HOME
+//     -> OUTPUT MODE
+//     -> START SCAN
+//     -> TARGETS (initial LIVE view)
+//     -> RADAR when geographic prerequisites are ready
+//
+// TARGETS and RADAR are two views of one capture session.
+// ============================================================
+
+
+enum WSUIScreen {
+    WS_SCREEN_HOME,
+    WS_SCREEN_PRIVACY,
+    WS_SCREEN_LIVE,
+    WS_SCREEN_SNAPSHOT
+};
+
+
+enum WSLiveView {
+    WS_VIEW_TARGETS,
+    WS_VIEW_RADAR
+};
+
+
+enum WSButtonID {
+    WS_BTN_NONE = -1,
+
+    WS_BTN_BEGIN,
+
+    WS_BTN_PRIVATE,
+    WS_BTN_OPEN,
+    WS_BTN_START,
+    WS_BTN_BACK,
+
+    WS_BTN_TAB_TARGETS,
+    WS_BTN_TAB_RADAR,
+
+    WS_BTN_T01,
+    WS_BTN_T02,
+    WS_BTN_T03,
+    WS_BTN_T04,
+
+    WS_BTN_SNAPSHOT,
+    WS_BTN_RESCAN,
+    WS_BTN_MODE,
+    WS_BTN_STOP,
+
+    WS_BTN_BACK_LIVE
+};
+
+
+struct WSUIButton {
+    int16_t x;
+    int16_t y;
+    int16_t w;
+    int16_t h;
+
+    const char *label;
+
+    uint8_t textSize;
+};
+
+
+// ------------------------------------------------------------
+// WAVESHARE FIXED TARGET SNAPSHOT
+//
+// Hardware-independent copy of RID target state.
+// Avoids reading Arduino String objects while the BLE callback
+// may be updating the live target table.
+// ------------------------------------------------------------
+
+struct WSUITargetSnapshot {
+
+    bool allocated = false;
+
+    // 0 = EMPTY
+    // 1 = ACTIVE
+    // 2 = STALE
+    // 3 = LOST
+    uint8_t stateCode = 0;
+
+    uint8_t uaType = 0;
+    uint8_t flightStatus = 0;
+    uint8_t protocolVersion = 0;
+
+    bool hasPosition = false;
+    double latitude = 0.0;
+    double longitude = 0.0;
+
+    bool directionValid = false;
+    float direction = 0.0f;
+
+    bool horizontalSpeedValid = false;
+    float horizontalSpeed = 0.0f;
+
+    bool verticalSpeedValid = false;
+    float verticalSpeed = 0.0f;
+
+    bool barometricAltitudeValid = false;
+    float barometricAltitude = 0.0f;
+
+    bool geodeticAltitudeValid = false;
+    float geodeticAltitude = 0.0f;
+
+    bool heightValid = false;
+    float height = 0.0f;
+    bool heightFromGround = false;
+
+    int currentRSSI = 0;
+    int filteredRSSI = 0;
+
+    uint32_t packetCount = 0;
+    uint32_t basicIDCount = 0;
+    uint32_t locationCount = 0;
+    uint32_t systemCount = 0;
+    uint32_t operatorIDCount = 0;
+    uint32_t lastSeenMs = 0;
+
+    // Timestamp of the most recent valid geographic
+    // Location/Vector position update.
+    uint32_t lastPositionSeenMs = 0;
+
+    bool displayIDValid = false;
+    char displayID[32] = {0};
+};
+
+
+// ------------------------------------------------------------
+// Explicit prototypes.
+//
+// The .ino preprocessor can otherwise generate prototypes
+// before our custom UI types are known.
+// ------------------------------------------------------------
+
+bool wsPointInside(
+    int16_t x,
+    int16_t y,
+    const WSUIButton &button
+);
+
+void wsDrawButton(
+    const WSUIButton &button,
+    bool selected,
+    uint16_t borderColor
+);
+
+WSButtonID wsHitTest(
+    int16_t x,
+    int16_t y
+);
+
+const char *wsButtonName(
+    WSButtonID button
+);
+
+void wsProcessButton(
+    WSButtonID button
+);
+
+bool wsCaptureTargetSnapshot(
+    uint8_t index,
+    WSUITargetSnapshot &snapshot
+);
+
+const char *wsSnapshotStateName(
+    const WSUITargetSnapshot &snapshot
+);
+
+void wsDrawSnapshotScreen();
+
+void wsDrawLiveTargetDataPanel();
+void serviceWaveshareLiveTargetRefresh();
+void serviceWaveshareRadarReadiness();
+void serviceWaveshareRadarRefresh();
+
+
+// ------------------------------------------------------------
+// UI STATE
+// ------------------------------------------------------------
+
+WSUIScreen wsCurrentScreen =
+    WS_SCREEN_HOME;
+
+WSLiveView wsCurrentLiveView =
+    WS_VIEW_TARGETS;
+
+
+// Mirrors the real backend outputMode for the touch UI.
+
+bool wsUiPrivateSelected = true;
+
+
+// Mirrors operator-owned RID session state for the UI.
+
+bool wsUiSessionStarted = false;
+
+
+// ============================================================
+// RADAR GEOGRAPHIC ENGINE - D4A
+//
+// Geographic calculations are based ONLY on:
+//   - a valid receiver latitude/longitude reference
+//   - a valid target latitude/longitude position
+//
+// RSSI is never used to infer range or bearing.
+//
+// The first RADAR implementation is NORTH-UP. True bearing is
+// derived mathematically from the two geographic coordinates,
+// so a physical compass is not required for north-up plotting.
+// ============================================================
+
+constexpr double WS_GEO_PI =
+    3.14159265358979323846;
+
+constexpr double WS_EARTH_RADIUS_METERS =
+    6371008.8;
+
+
+// Receiver reference intentionally starts invalid.
+//
+// Reference source is explicit so the UI and geographic engine
+// never confuse a fixed bench location with future live GNSS.
+//
+// RADAR must remain unavailable until:
+//   - the receiver reference is valid
+//   - the reference source is known
+//   - a target has a fresh valid geographic position
+
+enum WSReceiverReferenceSource {
+
+    WS_REF_NONE = 0,
+
+    WS_REF_MANUAL_FIXED = 1,
+
+    WS_REF_GNSS = 2
+};
+
+
+struct WSReceiverReference {
+
+    bool valid = false;
+
+    WSReceiverReferenceSource source =
+        WS_REF_NONE;
+
+    double latitude = 0.0;
+
+    double longitude = 0.0;
+};
+
+
+struct WSGeographicSolution {
+
+    bool valid = false;
+
+    double distanceMeters = 0.0;
+
+    double bearingTrueDegrees = 0.0;
+};
+
+
+// ------------------------------------------------------------
+// D4D-B RADAR TARGET SOLUTION
+//
+// Fixed-size result derived only from:
+//   - validated receiver reference coordinates
+//   - a fresh validated target geographic position
+//
+// RSSI is never used for distance or bearing.
+// ------------------------------------------------------------
+
+struct WSRadarTargetSolution {
+
+    bool valid = false;
+
+    uint8_t targetIndex = 0;
+
+    double distanceMeters = 0.0;
+
+    double bearingTrueDegrees = 0.0;
+
+    bool heightValid = false;
+
+    float heightMeters = 0.0f;
+
+    bool heightFromGround = false;
+};
+
+
+// ------------------------------------------------------------
+// D4D-C NORTH-UP RADAR PLOT POINT
+//
+// Converts a valid geographic target solution into display
+// coordinates. Screen Y increases downward, so north requires
+// a negative Y offset.
+//
+// Targets beyond the selected display range are clamped to the
+// outer ring and explicitly marked offScale.
+// ------------------------------------------------------------
+
+struct WSRadarPlotPoint {
+
+    bool valid = false;
+
+    int16_t x = 0;
+
+    int16_t y = 0;
+
+    bool offScale = false;
+
+    double plottedDistanceMeters = 0.0;
+};
+
+
+bool wsProjectRadarTarget(
+    const WSRadarTargetSolution &solution,
+    int16_t centerX,
+    int16_t centerY,
+    int16_t radiusPixels,
+    double rangeMeters,
+    WSRadarPlotPoint &point
+);
+
+
+bool wsBuildRadarTargetSolution(
+    uint8_t targetIndex,
+    const WSUITargetSnapshot &snapshot,
+    WSRadarTargetSolution &result
+);
+
+
+bool wsSolveGeographic(
+    double receiverLatitude,
+    double receiverLongitude,
+    double targetLatitude,
+    double targetLongitude,
+    WSGeographicSolution &solution
+);
+
+
+WSReceiverReference wsReceiverReference;
+
+
+// ============================================================
+// D4D-C NORTH-UP RADAR COORDINATE PROJECTION
+// ============================================================
+
+bool wsProjectRadarTarget(
+    const WSRadarTargetSolution &solution,
+    int16_t centerX,
+    int16_t centerY,
+    int16_t radiusPixels,
+    double rangeMeters,
+    WSRadarPlotPoint &point
+) {
+
+    point =
+        WSRadarPlotPoint();
+
+
+    if (
+        !solution.valid
+        ||
+        radiusPixels <= 0
+        ||
+        rangeMeters <= 0.0
+        ||
+        solution.distanceMeters < 0.0
+        ||
+        solution.bearingTrueDegrees < 0.0
+        ||
+        solution.bearingTrueDegrees >= 360.0
+    ) {
+
+        return false;
+    }
+
+
+    double plottedDistance =
+        solution.distanceMeters;
+
+
+    if (
+        plottedDistance
+        > rangeMeters
+    ) {
+
+        plottedDistance =
+            rangeMeters;
+
+        point.offScale =
+            true;
+    }
+
+
+    const double radialFraction =
+        plottedDistance
+        /
+        rangeMeters;
+
+
+    const double radialPixels =
+        radialFraction
+        *
+        static_cast<double>(
+            radiusPixels
+        );
+
+
+    const double bearingRadians =
+        wsDegreesToRadians(
+            solution.bearingTrueDegrees
+        );
+
+
+    // North-up screen transform:
+    //
+    // 0 deg   -> up
+    // 90 deg  -> right
+    // 180 deg -> down
+    // 270 deg -> left
+
+    const double xOffset =
+        sin(
+            bearingRadians
+        )
+        *
+        radialPixels;
+
+    const double yOffset =
+        -cos(
+            bearingRadians
+        )
+        *
+        radialPixels;
+
+
+    point.x =
+        static_cast<int16_t>(
+            lround(
+                static_cast<double>(
+                    centerX
+                )
+                +
+                xOffset
+            )
+        );
+
+
+    point.y =
+        static_cast<int16_t>(
+            lround(
+                static_cast<double>(
+                    centerY
+                )
+                +
+                yOffset
+            )
+        );
+
+
+    point.plottedDistanceMeters =
+        plottedDistance;
+
+    point.valid =
+        true;
+
+    return true;
+}
+
+
+bool wsCoordinateValid(
+    double latitude,
+    double longitude
+) {
+
+    return (
+        latitude >= -90.0
+        &&
+        latitude <= 90.0
+        &&
+        longitude >= -180.0
+        &&
+        longitude <= 180.0
+    );
+}
+
+
+void wsClearReceiverReference() {
+
+    wsReceiverReference.valid =
+        false;
+
+    wsReceiverReference.source =
+        WS_REF_NONE;
+
+    wsReceiverReference.latitude =
+        0.0;
+
+    wsReceiverReference.longitude =
+        0.0;
+}
+
+
+bool wsSetManualFixedReceiverReference(
+    double latitude,
+    double longitude
+) {
+
+    if (
+        !wsCoordinateValid(
+            latitude,
+            longitude
+        )
+    ) {
+
+        wsClearReceiverReference();
+
+        return false;
+    }
+
+
+    wsReceiverReference.latitude =
+        latitude;
+
+    wsReceiverReference.longitude =
+        longitude;
+
+    wsReceiverReference.source =
+        WS_REF_MANUAL_FIXED;
+
+    wsReceiverReference.valid =
+        true;
+
+    return true;
+}
+
+
+double wsDegreesToRadians(
+    double degrees
+) {
+
+    return (
+        degrees
+        * WS_GEO_PI
+        / 180.0
+    );
+}
+
+
+double wsRadiansToDegrees(
+    double radians
+) {
+
+    return (
+        radians
+        * 180.0
+        / WS_GEO_PI
+    );
+}
+
+
+bool wsSolveGeographic(
+    double receiverLatitude,
+    double receiverLongitude,
+    double targetLatitude,
+    double targetLongitude,
+    WSGeographicSolution &solution
+) {
+
+    solution.valid = false;
+
+    solution.distanceMeters = 0.0;
+
+    solution.bearingTrueDegrees = 0.0;
+
+
+    if (
+        !wsCoordinateValid(
+            receiverLatitude,
+            receiverLongitude
+        )
+        ||
+        !wsCoordinateValid(
+            targetLatitude,
+            targetLongitude
+        )
+    ) {
+
+        return false;
+    }
+
+
+    const double receiverLatRad =
+        wsDegreesToRadians(
+            receiverLatitude
+        );
+
+    const double targetLatRad =
+        wsDegreesToRadians(
+            targetLatitude
+        );
+
+    const double deltaLatRad =
+        wsDegreesToRadians(
+            targetLatitude
+            - receiverLatitude
+        );
+
+    const double deltaLonRad =
+        wsDegreesToRadians(
+            targetLongitude
+            - receiverLongitude
+        );
+
+
+    const double sinHalfDeltaLat =
+        sin(
+            deltaLatRad
+            / 2.0
+        );
+
+    const double sinHalfDeltaLon =
+        sin(
+            deltaLonRad
+            / 2.0
+        );
+
+
+    double haversineA =
+        (
+            sinHalfDeltaLat
+            * sinHalfDeltaLat
+        )
+        +
+        (
+            cos(
+                receiverLatRad
+            )
+            *
+            cos(
+                targetLatRad
+            )
+            *
+            sinHalfDeltaLon
+            *
+            sinHalfDeltaLon
+        );
+
+
+    // Numerical protection near antipodal points.
+
+    if (haversineA < 0.0) {
+
+        haversineA = 0.0;
+    }
+
+    else if (haversineA > 1.0) {
+
+        haversineA = 1.0;
+    }
+
+
+    const double centralAngle =
+        2.0
+        *
+        atan2(
+            sqrt(
+                haversineA
+            ),
+            sqrt(
+                1.0
+                - haversineA
+            )
+        );
+
+
+    solution.distanceMeters =
+        WS_EARTH_RADIUS_METERS
+        *
+        centralAngle;
+
+
+    const double bearingY =
+        sin(
+            deltaLonRad
+        )
+        *
+        cos(
+            targetLatRad
+        );
+
+    const double bearingX =
+        (
+            cos(
+                receiverLatRad
+            )
+            *
+            sin(
+                targetLatRad
+            )
+        )
+        -
+        (
+            sin(
+                receiverLatRad
+            )
+            *
+            cos(
+                targetLatRad
+            )
+            *
+            cos(
+                deltaLonRad
+            )
+        );
+
+
+    double bearingDegrees =
+        wsRadiansToDegrees(
+            atan2(
+                bearingY,
+                bearingX
+            )
+        );
+
+
+    bearingDegrees =
+        fmod(
+            bearingDegrees
+            + 360.0,
+            360.0
+        );
+
+
+    solution.bearingTrueDegrees =
+        bearingDegrees;
+
+    solution.valid = true;
+
+    return true;
+}
+
+
+// RADAR is intentionally unavailable at startup.
+//
+// Later this becomes data-driven using:
+//   - valid receiver reference position
+//   - fresh valid target geographic position
+//   - any additional stability criteria we adopt.
+//
+// It must NEVER become ready from RSSI alone.
+
+bool wsRadarReady = false;
+
+
+// Geographic freshness is intentionally based on the timestamp
+// of the most recent valid Location/Vector position update,
+// NOT the timestamp of arbitrary RID traffic.
+//
+// Reuse the existing ACTIVE freshness interval so geographic
+// readiness follows the same conservative 3-second freshness
+// expectation already used elsewhere in the receiver.
+
+const uint32_t WS_RADAR_POSITION_FRESH_MS =
+    TARGET_ACTIVE_MS;
+
+
+// ============================================================
+// D4D-B PER-TARGET RADAR GEOGRAPHIC SOLUTION
+// ============================================================
+
+bool wsBuildRadarTargetSolution(
+    uint8_t targetIndex,
+    const WSUITargetSnapshot &snapshot,
+    WSRadarTargetSolution &result
+) {
+
+    result =
+        WSRadarTargetSolution();
+
+    result.targetIndex =
+        targetIndex;
+
+
+    if (targetIndex >= MAX_TARGETS) {
+
+        return false;
+    }
+
+
+    // Receiver reference must be explicitly valid and sourced.
+
+    if (
+        !wsReceiverReference.valid
+        ||
+        wsReceiverReference.source
+            == WS_REF_NONE
+        ||
+        !wsCoordinateValid(
+            wsReceiverReference.latitude,
+            wsReceiverReference.longitude
+        )
+    ) {
+
+        return false;
+    }
+
+
+    // Target must contain a real geographic position and a
+    // position-specific freshness timestamp.
+
+    if (
+        !snapshot.allocated
+        ||
+        !snapshot.hasPosition
+        ||
+        snapshot.lastPositionSeenMs == 0
+    ) {
+
+        return false;
+    }
+
+
+    if (
+        !wsCoordinateValid(
+            snapshot.latitude,
+            snapshot.longitude
+        )
+    ) {
+
+        return false;
+    }
+
+
+    const uint32_t positionAge =
+        millis()
+        -
+        snapshot.lastPositionSeenMs;
+
+
+    if (
+        positionAge
+        > WS_RADAR_POSITION_FRESH_MS
+    ) {
+
+        return false;
+    }
+
+
+    // Reuse the already-validated D4A great-circle solver.
+
+    WSGeographicSolution geographicSolution;
+
+
+    if (
+        !wsSolveGeographic(
+            wsReceiverReference.latitude,
+            wsReceiverReference.longitude,
+            snapshot.latitude,
+            snapshot.longitude,
+            geographicSolution
+        )
+        ||
+        !geographicSolution.valid
+    ) {
+
+        return false;
+    }
+
+
+    result.distanceMeters =
+        geographicSolution.distanceMeters;
+
+    result.bearingTrueDegrees =
+        geographicSolution.bearingTrueDegrees;
+
+
+    // Carry the existing OpenDroneID height semantics forward.
+    //
+    // heightFromGround == true  -> AGL
+    // heightFromGround == false -> ATO
+
+    result.heightValid =
+        snapshot.heightValid;
+
+    result.heightMeters =
+        snapshot.height;
+
+    result.heightFromGround =
+        snapshot.heightFromGround;
+
+
+    result.valid =
+        true;
+
+    return true;
+}
+
+
+bool wsEvaluateRadarReady() {
+
+    // RADAR belongs to an operator-owned active capture session.
+
+    if (
+        !wsUiSessionStarted
+        ||
+        !scanSessionActive
+    ) {
+
+        return false;
+    }
+
+
+    // A reference must exist, identify its source, and contain
+    // valid geographic coordinates.
+
+    if (
+        !wsReceiverReference.valid
+        ||
+        wsReceiverReference.source
+            == WS_REF_NONE
+        ||
+        !wsCoordinateValid(
+            wsReceiverReference.latitude,
+            wsReceiverReference.longitude
+        )
+    ) {
+
+        return false;
+    }
+
+
+    const uint32_t now =
+        millis();
+
+    bool freshGeographicTarget =
+        false;
+
+
+    if (targetMutex != nullptr) {
+
+        xSemaphoreTake(
+            targetMutex,
+            portMAX_DELAY
+        );
+    }
+
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+
+        const RIDTarget &target =
+            targets[i];
+
+
+        if (
+            !target.allocated
+            ||
+            !target.hasPosition
+            ||
+            target.lastPositionSeenMs == 0
+        ) {
+
+            continue;
+        }
+
+
+        if (
+            !wsCoordinateValid(
+                target.latitude,
+                target.longitude
+            )
+        ) {
+
+            continue;
+        }
+
+
+        const uint32_t positionAge =
+            now
+            -
+            target.lastPositionSeenMs;
+
+
+        if (
+            positionAge
+            <= WS_RADAR_POSITION_FRESH_MS
+        ) {
+
+            freshGeographicTarget =
+                true;
+
+            break;
+        }
+    }
+
+
+    if (targetMutex != nullptr) {
+
+        xSemaphoreGive(
+            targetMutex
+        );
+    }
+
+
+    return freshGeographicTarget;
+}
+
+
+void serviceWaveshareRadarReadiness() {
+
+    const bool readyNow =
+        wsEvaluateRadarReady();
+
+
+    if (
+        readyNow
+        == wsRadarReady
+    ) {
+
+        return;
+    }
+
+
+    wsRadarReady =
+        readyNow;
+
+
+    if (wsRadarReady) {
+
+        Serial.println(
+            "[RADAR] READY: valid receiver reference + fresh geographic target."
+        );
+    }
+
+    else {
+
+        Serial.println(
+            "[RADAR] ACQUIRING: geographic prerequisites unavailable."
+        );
+    }
+
+
+    // Update only the tab/header when readiness changes.
+    // Do not disturb the live target panel or BLE receiver.
+
+    if (
+        wsCurrentScreen
+        == WS_SCREEN_LIVE
+    ) {
+
+        wsDrawLiveTabs();
+    }
+}
+
+
+uint8_t wsUiSelectedTarget = 0;
+
+
+// ------------------------------------------------------------
+// LIVE TARGET DATA REFRESH
+//
+// Keep display refresh independent from BLE packet arrival.
+// Start conservatively at 2 Hz to preserve touch responsiveness
+// and avoid unnecessary SPI traffic.
+// ------------------------------------------------------------
+
+const uint32_t WS_LIVE_TARGET_REFRESH_MS = 500;
+
+uint32_t wsLastLiveTargetRefreshMs = 0;
+
+
+// RADAR redraw remains independent from BLE packet arrival.
+// Initial 500 m range is a provisional presentation scale,
+// not a geographic or RF-derived estimate.
+
+const uint32_t WS_RADAR_REFRESH_MS = 500;
+
+uint32_t wsLastRadarRefreshMs = 0;
+
+double wsRadarDisplayRangeMeters = 500.0;
+
+const int16_t WS_RADAR_CENTER_X = 122;
+const int16_t WS_RADAR_CENTER_Y = 203;
+const int16_t WS_RADAR_RADIUS_PX = 88;
+
+
+// ------------------------------------------------------------
+// D4D-D1 TEMPORARY SYNTHETIC VISUAL RADAR TEST
+//
+// Synthetic coordinates only.
+// R111S should remain OFF.
+//
+// Four controlled targets:
+//   T01 ~111 m NORTH
+//   T02 ~222 m EAST
+//   T03 ~334 m SOUTH
+//   T04 ~667 m WEST (off-scale on 500 m display)
+// ------------------------------------------------------------
+
+bool wsRadarVisualTestActive = false;
+
+
+void wsInstallRadarVisualTestTargets() {
+
+    wsRadarVisualTestActive =
+        false;
+
+
+    if (
+        !wsSetManualFixedReceiverReference(
+            0.0,
+            0.0
+        )
+    ) {
+
+        Serial.println(
+            "[D4D-D1 TEST] ERROR: synthetic receiver reference rejected."
+        );
+
+        return;
+    }
+
+
+    const uint32_t now =
+        millis();
+
+
+    if (targetMutex != nullptr) {
+
+        xSemaphoreTake(
+            targetMutex,
+            portMAX_DELAY
+        );
+    }
+
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+
+        targets[i] =
+            RIDTarget();
+
+        targets[i].allocated =
+            true;
+
+        targets[i].firstSeenMs =
+            now;
+
+        targets[i].lastSeenMs =
+            now;
+
+        targets[i].lastPositionSeenMs =
+            now;
+
+        targets[i].hasPosition =
+            true;
+
+        targets[i].packetCount =
+            1;
+
+        targets[i].locationCount =
+            1;
+    }
+
+
+    // T01: ~111 m NORTH.
+
+    targets[0].sourceAddress =
+        "D4D-T01";
+
+    targets[0].latitude =
+        0.001;
+
+    targets[0].longitude =
+        0.0;
+
+    targets[0].heightValid =
+        true;
+
+    targets[0].height =
+        30.0f;
+
+    targets[0].heightFromGround =
+        true;
+
+
+    // T02: ~222 m EAST.
+
+    targets[1].sourceAddress =
+        "D4D-T02";
+
+    targets[1].latitude =
+        0.0;
+
+    targets[1].longitude =
+        0.002;
+
+    targets[1].heightValid =
+        true;
+
+    targets[1].height =
+        45.0f;
+
+    targets[1].heightFromGround =
+        false;
+
+
+    // T03: ~334 m SOUTH.
+
+    targets[2].sourceAddress =
+        "D4D-T03";
+
+    targets[2].latitude =
+        -0.003;
+
+    targets[2].longitude =
+        0.0;
+
+    targets[2].heightValid =
+        true;
+
+    targets[2].height =
+        60.0f;
+
+    targets[2].heightFromGround =
+        true;
+
+
+    // T04: ~667 m WEST.
+    // This should clamp to the 500 m outer ring and display
+    // using the renderer's off-scale color.
+
+    targets[3].sourceAddress =
+        "D4D-T04";
+
+    targets[3].latitude =
+        0.0;
+
+    targets[3].longitude =
+        -0.006;
+
+    targets[3].heightValid =
+        true;
+
+    targets[3].height =
+        75.0f;
+
+    targets[3].heightFromGround =
+        false;
+
+
+    if (targetMutex != nullptr) {
+
+        xSemaphoreGive(
+            targetMutex
+        );
+    }
+
+
+    wsRadarVisualTestActive =
+        true;
+
+
+    Serial.println(
+        "[D4D-D1 TEST] Synthetic FIXED reference + T01-T04 installed."
+    );
+
+    Serial.println(
+        "[D4D-D1 TEST] Expected: T01=N, T02=E, T03=S, T04=W off-scale."
+    );
+}
+
+
+void wsServiceRadarVisualTest() {
+
+    if (!wsRadarVisualTestActive) {
+
+        return;
+    }
+
+
+    if (
+        !wsUiSessionStarted
+        ||
+        !scanSessionActive
+    ) {
+
+        wsRadarVisualTestActive =
+            false;
+
+        wsClearReceiverReference();
+
+        return;
+    }
+
+
+    const uint32_t now =
+        millis();
+
+
+    if (targetMutex != nullptr) {
+
+        xSemaphoreTake(
+            targetMutex,
+            portMAX_DELAY
+        );
+    }
+
+
+    // Keep the controlled geographic positions fresh so there
+    // is no 3-second inspection deadline during visual testing.
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+
+        if (!targets[i].allocated) {
+
+            continue;
+        }
+
+
+        targets[i].lastSeenMs =
+            now;
+
+        targets[i].lastPositionSeenMs =
+            now;
+    }
+
+
+    if (targetMutex != nullptr) {
+
+        xSemaphoreGive(
+            targetMutex
+        );
+    }
+}
+
+
+// Frozen snapshot state.
+//
+// The live RID receiver continues updating targets[] while this
+// fixed copy remains unchanged.
+
+WSUITargetSnapshot wsFrozenSnapshot;
+
+bool wsFrozenSnapshotCaptured = false;
+
+uint8_t wsFrozenSnapshotTarget = 0;
+
+OutputMode wsFrozenSnapshotMode =
+    MODE_PRIVATE;
+
+uint32_t wsFrozenSnapshotCapturedMs = 0;
+
+
+WSButtonID wsTouchDownButton =
+    WS_BTN_NONE;
+
+
+// ------------------------------------------------------------
+// COLORS
+// ------------------------------------------------------------
+
+const uint16_t WS_COLOR_DARK_GREY =
+    0x2104;
+
+const uint16_t WS_COLOR_GREY =
+    0x8410;
+
+
+// ------------------------------------------------------------
+// HOME / PRIVACY BUTTONS
+// ------------------------------------------------------------
+
+const WSUIButton wsButtonBegin = {
+    90, 125, 300, 78,
+    "BEGIN",
+    3
+};
+
+
+const WSUIButton wsButtonPrivate = {
+    30, 82, 200, 72,
+    "PRIVATE",
+    2
+};
+
+
+const WSUIButton wsButtonOpen = {
+    250, 82, 200, 72,
+    "OPEN",
+    2
+};
+
+
+const WSUIButton wsButtonStart = {
+    110, 174, 260, 66,
+    "START SCAN",
+    2
+};
+
+
+const WSUIButton wsButtonBack = {
+    20, 255, 130, 50,
+    "BACK",
+    2
+};
+
+
+// ------------------------------------------------------------
+// LIVE VIEW TABS
+// ------------------------------------------------------------
+
+const WSUIButton wsButtonTargetsTab = {
+    10, 48, 225, 46,
+    "TARGETS",
+    2
+};
+
+
+const WSUIButton wsButtonRadarTab = {
+    245, 48, 225, 46,
+    "RADAR",
+    2
+};
+
+
+// ------------------------------------------------------------
+// TARGET SELECTORS
+// ------------------------------------------------------------
+
+const WSUIButton wsButtonT01 = {
+    10, 106, 105, 46,
+    "T01",
+    2
+};
+
+
+const WSUIButton wsButtonT02 = {
+    126, 106, 105, 46,
+    "T02",
+    2
+};
+
+
+const WSUIButton wsButtonT03 = {
+    242, 106, 105, 46,
+    "T03",
+    2
+};
+
+
+const WSUIButton wsButtonT04 = {
+    358, 106, 105, 46,
+    "T04",
+    2
+};
+
+
+// ------------------------------------------------------------
+// LIVE BOTTOM CONTROLS
+// ------------------------------------------------------------
+
+const WSUIButton wsButtonSnapshot = {
+    10, 260, 106, 50,
+    "SNAPSHOT",
+    2
+};
+
+
+const WSUIButton wsButtonRescan = {
+    128, 260, 106, 50,
+    "RESCAN",
+    2
+};
+
+
+const WSUIButton wsButtonMode = {
+    246, 260, 106, 50,
+    "MODE",
+    2
+};
+
+
+const WSUIButton wsButtonStop = {
+    364, 260, 106, 50,
+    "STOP",
+    2
+};
+
+
+// Snapshot screen uses one deliberately large return control.
+
+const WSUIButton wsButtonBackLive = {
+    120, 260, 240, 50,
+    "BACK TO LIVE",
+    2
+};
+
+
+// ============================================================
+// FIXED RID TARGET SNAPSHOT
+// ============================================================
+
+bool wsCaptureTargetSnapshot(
+    uint8_t index,
+    WSUITargetSnapshot &snapshot
+) {
+
+    snapshot =
+        WSUITargetSnapshot();
+
+
+    if (index >= MAX_TARGETS) {
+
+        return false;
+    }
+
+
+    if (targetMutex != nullptr) {
+
+        xSemaphoreTake(
+            targetMutex,
+            portMAX_DELAY
+        );
+    }
+
+
+    RIDTarget &target =
+        targets[index];
+
+
+    snapshot.allocated =
+        target.allocated;
+
+
+    if (target.allocated) {
+
+        uint32_t age =
+            millis()
+            - target.lastSeenMs;
+
+
+        if (age <= TARGET_ACTIVE_MS) {
+
+            snapshot.stateCode = 1;
+        }
+
+        else if (age <= TARGET_STALE_MS) {
+
+            snapshot.stateCode = 2;
+        }
+
+        else {
+
+            snapshot.stateCode = 3;
+        }
+
+
+        snapshot.uaType =
+            target.uaType;
+
+        snapshot.flightStatus =
+            target.flightStatus;
+
+        snapshot.protocolVersion =
+            target.protocolVersion;
+
+
+        snapshot.hasPosition =
+            target.hasPosition;
+
+        snapshot.latitude =
+            target.latitude;
+
+        snapshot.longitude =
+            target.longitude;
+
+
+        snapshot.directionValid =
+            target.directionValid;
+
+        snapshot.direction =
+            target.direction;
+
+
+        snapshot.horizontalSpeedValid =
+            target.horizontalSpeedValid;
+
+        snapshot.horizontalSpeed =
+            target.horizontalSpeed;
+
+
+        snapshot.verticalSpeedValid =
+            target.verticalSpeedValid;
+
+        snapshot.verticalSpeed =
+            target.verticalSpeed;
+
+
+        snapshot.barometricAltitudeValid =
+            target.barometricAltitudeValid;
+
+        snapshot.barometricAltitude =
+            target.barometricAltitude;
+
+
+        snapshot.geodeticAltitudeValid =
+            target.geodeticAltitudeValid;
+
+        snapshot.geodeticAltitude =
+            target.geodeticAltitude;
+
+
+        snapshot.heightValid =
+            target.heightValid;
+
+        snapshot.height =
+            target.height;
+
+        snapshot.heightFromGround =
+            target.heightFromGround;
+
+
+        snapshot.currentRSSI =
+            target.currentRSSI;
+
+        snapshot.filteredRSSI =
+            getFilteredRSSI(
+                target
+            );
+
+
+        snapshot.packetCount =
+            target.packetCount;
+
+        snapshot.basicIDCount =
+            target.basicIDCount;
+
+        snapshot.locationCount =
+            target.locationCount;
+
+        snapshot.systemCount =
+            target.systemCount;
+
+        snapshot.operatorIDCount =
+            target.operatorIDCount;
+
+        snapshot.lastSeenMs =
+            target.lastSeenMs;
+
+        snapshot.lastPositionSeenMs =
+            target.lastPositionSeenMs;
+
+
+        const char *idText =
+            nullptr;
+
+
+        if (target.hasSerialID) {
+
+            idText =
+                target.serialID.c_str();
+        }
+
+        else if (target.hasRegistrationID) {
+
+            idText =
+                target.registrationID.c_str();
+        }
+
+        else if (target.hasOperatorID) {
+
+            idText =
+                target.operatorID.c_str();
+        }
+
+
+        if (idText != nullptr) {
+
+            snprintf(
+                snapshot.displayID,
+                sizeof(snapshot.displayID),
+                "%s",
+                idText
+            );
+
+            snapshot.displayIDValid =
+                true;
+        }
+    }
+
+
+    if (targetMutex != nullptr) {
+
+        xSemaphoreGive(
+            targetMutex
+        );
+    }
+
+
+    return snapshot.allocated;
+}
+
+
+// ============================================================
+// HIT TEST HELPER
+// ============================================================
+
+bool wsPointInside(
+    int16_t x,
+    int16_t y,
+    const WSUIButton &button
+) {
+
+    // Small invisible expansion helps finger use without
+    // creating excessive overlap between adjacent controls.
+
+    const int16_t padding = 4;
+
+    return (
+        x >= button.x - padding
+        && x <= button.x + button.w + padding
+        && y >= button.y - padding
+        && y <= button.y + button.h + padding
+    );
+}
+
+
+// ============================================================
+// GENERIC BUTTON DRAW
+// ============================================================
+
+void wsDrawButton(
+    const WSUIButton &button,
+    bool selected,
+    uint16_t borderColor
+) {
+
+    uint16_t fillColor =
+        selected
+        ? CYAN
+        : BLACK;
+
+    uint16_t textColor =
+        selected
+        ? BLACK
+        : WHITE;
+
+
+    wsGfx->fillRoundRect(
+        button.x,
+        button.y,
+        button.w,
+        button.h,
+        8,
+        fillColor
+    );
+
+
+    wsGfx->drawRoundRect(
+        button.x,
+        button.y,
+        button.w,
+        button.h,
+        8,
+        selected
+        ? CYAN
+        : borderColor
+    );
+
+
+    wsGfx->setTextSize(
+        button.textSize
+    );
+
+    wsGfx->setTextColor(
+        textColor
+    );
+
+
+    int16_t textWidth =
+        strlen(button.label)
+        * 6
+        * button.textSize;
+
+    int16_t textHeight =
+        8
+        * button.textSize;
+
+
+    wsGfx->setCursor(
+        button.x
+        + (button.w - textWidth) / 2,
+
+        button.y
+        + (button.h - textHeight) / 2
+    );
+
+
+    wsGfx->print(
+        button.label
+    );
+}
+
+
+// ============================================================
+// HEADER
+// ============================================================
+
+void wsDrawHeader(
+    const char *title,
+    bool showMode
+) {
+
+    wsGfx->fillRect(
+        0,
+        0,
+        480,
+        42,
+        BLACK
+    );
+
+
+    wsGfx->drawLine(
+        0,
+        41,
+        479,
+        41,
+        CYAN
+    );
+
+
+    wsGfx->setTextSize(2);
+    wsGfx->setTextColor(WHITE);
+
+    wsGfx->setCursor(
+        10,
+        12
+    );
+
+    wsGfx->print(
+        title
+    );
+
+
+    if (showMode) {
+
+        wsGfx->setTextSize(1);
+
+        wsGfx->setTextColor(
+            wsUiPrivateSelected
+            ? CYAN
+            : YELLOW
+        );
+
+        wsGfx->setCursor(
+            420,
+            16
+        );
+
+        wsGfx->print(
+            wsUiPrivateSelected
+            ? "PRIVATE"
+            : "OPEN"
+        );
+    }
+}
+
+
+// ============================================================
+// HOME SCREEN
+// ============================================================
+
+void wsDrawHomeScreen() {
+
+    wsGfx->fillScreen(
+        BLACK
+    );
+
+
+    wsDrawHeader(
+        "REMOTE ID HANDHELD",
+        false
+    );
+
+
+    wsGfx->setTextSize(3);
+    wsGfx->setTextColor(CYAN);
+
+    wsGfx->setCursor(
+        111,
+        73
+    );
+
+    wsGfx->print(
+        "RID SENSOR"
+    );
+
+
+    wsDrawButton(
+        wsButtonBegin,
+        false,
+        WHITE
+    );
+
+
+    wsGfx->setTextSize(2);
+    wsGfx->setTextColor(GREEN);
+
+    wsGfx->setCursor(
+        155,
+        222
+    );
+
+    wsGfx->print(
+        "SYSTEM READY"
+    );
+
+
+    wsGfx->setTextSize(1);
+    wsGfx->setTextColor(WHITE);
+
+    wsGfx->setCursor(
+        158,
+        290
+    );
+
+    wsGfx->print(
+        "STAGE 1B CONTROL"
+    );
+}
+
+
+// ============================================================
+// OUTPUT MODE SCREEN
+// ============================================================
+
+void wsDrawPrivacyScreen() {
+
+    wsGfx->fillScreen(
+        BLACK
+    );
+
+
+    wsDrawHeader(
+        "SELECT OUTPUT MODE",
+        false
+    );
+
+
+    wsGfx->setTextSize(1);
+    wsGfx->setTextColor(YELLOW);
+
+    wsGfx->setCursor(
+        128,
+        57
+    );
+
+    wsGfx->print(
+        "PRIVATE IS DEFAULT"
+    );
+
+
+    wsDrawButton(
+        wsButtonPrivate,
+        wsUiPrivateSelected,
+        WHITE
+    );
+
+
+    wsDrawButton(
+        wsButtonOpen,
+        !wsUiPrivateSelected,
+        WHITE
+    );
+
+
+    wsDrawButton(
+        wsButtonStart,
+        false,
+        GREEN
+    );
+
+
+    wsDrawButton(
+        wsButtonBack,
+        false,
+        WHITE
+    );
+
+
+    wsGfx->setTextSize(1);
+    wsGfx->setTextColor(WS_COLOR_GREY);
+
+    wsGfx->setCursor(
+        178,
+        287
+    );
+
+    wsGfx->print(
+        "SELECT MODE THEN START"
+    );
+}
+
+
+// ============================================================
+// LIVE TAB BAR
+// ============================================================
+
+void wsDrawLiveTabs() {
+
+    // D4D-D2B:
+    // Keep the original large touch hitboxes, but visually
+    // compact the tabs while RADAR is the active live view.
+
+    const int16_t wsLiveTabDrawHeight =
+        (
+            wsCurrentLiveView
+            == WS_VIEW_RADAR
+        )
+        ? 38
+        : wsButtonTargetsTab.h;
+
+
+    // Built-in text geometry used by the existing UI:
+    // text size 2 = approximately 12 px wide x 16 px tall
+    // per character; text size 1 = approximately 6 x 8.
+    //
+    // Touch hitboxes remain completely unchanged.
+
+    const int16_t wsTargetsTextX =
+        wsButtonTargetsTab.x
+        +
+        (
+            wsButtonTargetsTab.w
+            -
+            84
+        )
+        /
+        2;
+
+    const int16_t wsTargetsTextY =
+        wsButtonTargetsTab.y
+        +
+        (
+            wsLiveTabDrawHeight
+            -
+            16
+        )
+        /
+        2;
+
+
+    // RADAR uses a two-line centered stack:
+    // 16 px title + 2 px gap + 8 px status.
+
+    const int16_t wsRadarTitleX =
+        wsButtonRadarTab.x
+        +
+        (
+            wsButtonRadarTab.w
+            -
+            60
+        )
+        /
+        2;
+
+    const int16_t wsRadarTitleY =
+        wsButtonRadarTab.y
+        +
+        (
+            wsLiveTabDrawHeight
+            -
+            26
+        )
+        /
+        2;
+
+    const int16_t wsRadarStatusY =
+        wsRadarTitleY
+        +
+        18;
+
+
+    // TARGETS TAB
+
+    bool targetsSelected =
+        wsCurrentLiveView
+        == WS_VIEW_TARGETS;
+
+
+    wsGfx->fillRoundRect(
+        wsButtonTargetsTab.x,
+        wsButtonTargetsTab.y,
+        wsButtonTargetsTab.w,
+        wsLiveTabDrawHeight,
+        8,
+        targetsSelected
+        ? CYAN
+        : BLACK
+    );
+
+
+    wsGfx->drawRoundRect(
+        wsButtonTargetsTab.x,
+        wsButtonTargetsTab.y,
+        wsButtonTargetsTab.w,
+        wsLiveTabDrawHeight,
+        8,
+        CYAN
+    );
+
+
+    wsGfx->setTextSize(2);
+
+    wsGfx->setTextColor(
+        targetsSelected
+        ? BLACK
+        : WHITE
+    );
+
+
+    wsGfx->setCursor(
+        wsTargetsTextX,
+        wsTargetsTextY
+    );
+
+    wsGfx->print(
+        "TARGETS"
+    );
+
+
+    // RADAR TAB
+    //
+    // Grey = acquiring / unavailable.
+    // Green = geographic prerequisites satisfied.
+
+    uint16_t radarFill =
+        wsRadarReady
+        ? (
+            wsCurrentLiveView == WS_VIEW_RADAR
+            ? GREEN
+            : BLACK
+        )
+        : WS_COLOR_DARK_GREY;
+
+
+    uint16_t radarBorder =
+        wsRadarReady
+        ? GREEN
+        : WS_COLOR_GREY;
+
+
+    wsGfx->fillRoundRect(
+        wsButtonRadarTab.x,
+        wsButtonRadarTab.y,
+        wsButtonRadarTab.w,
+        wsLiveTabDrawHeight,
+        8,
+        radarFill
+    );
+
+
+    wsGfx->drawRoundRect(
+        wsButtonRadarTab.x,
+        wsButtonRadarTab.y,
+        wsButtonRadarTab.w,
+        wsLiveTabDrawHeight,
+        8,
+        radarBorder
+    );
+
+
+    wsGfx->setTextSize(2);
+
+    wsGfx->setTextColor(
+        wsRadarReady
+        && wsCurrentLiveView == WS_VIEW_RADAR
+        ? BLACK
+        : WHITE
+    );
+
+
+    wsGfx->setCursor(
+        wsRadarTitleX,
+        wsRadarTitleY
+    );
+
+    wsGfx->print(
+        "RADAR"
+    );
+
+
+    wsGfx->setTextSize(1);
+
+    wsGfx->setTextColor(
+        wsRadarReady
+        ? (
+            wsCurrentLiveView == WS_VIEW_RADAR
+            ? BLACK
+            : GREEN
+        )
+        : WS_COLOR_GREY
+    );
+
+
+    wsGfx->setCursor(
+        wsRadarReady
+        ? (
+            wsButtonRadarTab.x
+            +
+            (
+                wsButtonRadarTab.w
+                -
+                30
+            )
+            /
+            2
+        )
+        : (
+            wsButtonRadarTab.x
+            +
+            (
+                wsButtonRadarTab.w
+                -
+                54
+            )
+            /
+            2
+        ),
+        wsRadarStatusY
+    );
+
+
+    wsGfx->print(
+        wsRadarReady
+        ? "READY"
+        : "ACQUIRING"
+    );
+}
+
+
+// ============================================================
+// TARGETS VIEW
+// ============================================================
+
+void wsDrawLiveTargetDataPanel() {
+
+    WSUITargetSnapshot snapshot;
+
+    wsCaptureTargetSnapshot(
+        wsUiSelectedTarget,
+        snapshot
+    );
+
+
+    // --------------------------------------------------------
+    // Lifecycle color.
+    // --------------------------------------------------------
+
+    uint16_t stateColor =
+        WS_COLOR_GREY;
+
+
+    if (snapshot.allocated) {
+
+        if (snapshot.stateCode == 1) {
+
+            stateColor =
+                GREEN;
+        }
+
+        else if (snapshot.stateCode == 2) {
+
+            stateColor =
+                YELLOW;
+        }
+
+        else if (snapshot.stateCode == 3) {
+
+            stateColor =
+                RED;
+        }
+    }
+
+
+    // --------------------------------------------------------
+    // Clear ONLY the live target-data region.
+    // --------------------------------------------------------
+
+    wsGfx->fillRoundRect(
+        10,
+        162,
+        460,
+        86,
+        8,
+        BLACK
+    );
+
+
+    wsGfx->drawRoundRect(
+        10,
+        162,
+        460,
+        86,
+        8,
+        stateColor
+    );
+
+
+    // --------------------------------------------------------
+    // Lifecycle header.
+    //
+    // Target identity is already communicated by the selected
+    // T01-T04 button directly above this panel.
+    // --------------------------------------------------------
+
+    wsGfx->setTextSize(2);
+
+    wsGfx->setTextColor(
+        stateColor
+    );
+
+    wsGfx->setCursor(
+        24,
+        169
+    );
+
+    wsGfx->print(
+        wsSnapshotStateName(
+            snapshot
+        )
+    );
+
+
+    // --------------------------------------------------------
+    // EMPTY target.
+    // --------------------------------------------------------
+
+    if (!snapshot.allocated) {
+
+        wsGfx->setTextSize(1);
+
+        wsGfx->setTextColor(
+            WHITE
+        );
+
+        wsGfx->setCursor(
+            24,
+            198
+        );
+
+        wsGfx->print(
+            "NO ALLOCATED TARGET"
+        );
+
+
+        wsGfx->setTextColor(
+            WS_COLOR_GREY
+        );
+
+        wsGfx->setCursor(
+            24,
+            218
+        );
+
+        wsGfx->print(
+            "LIVE RECEIVER CONTINUES"
+        );
+
+        return;
+    }
+
+
+    // --------------------------------------------------------
+    // RSSI - upper-right status field.
+    // --------------------------------------------------------
+
+    wsGfx->setTextSize(1);
+
+    wsGfx->setTextColor(
+        WHITE
+    );
+
+    wsGfx->setCursor(
+        350,
+        174
+    );
+
+    wsGfx->print(
+        "RSSI:"
+    );
+
+    wsGfx->print(
+        snapshot.filteredRSSI
+    );
+
+
+    // --------------------------------------------------------
+    // TYPE / FLIGHT / PROTOCOL
+    // --------------------------------------------------------
+
+    wsGfx->setCursor(
+        24,
+        191
+    );
+
+    wsGfx->print(
+        "TYPE:"
+    );
+
+    wsGfx->print(
+        uaTypeName(
+            snapshot.uaType
+        )
+    );
+
+    wsGfx->print(
+        "  FLT:"
+    );
+
+    wsGfx->print(
+        flightStatusName(
+            snapshot.flightStatus
+        )
+    );
+
+    wsGfx->print(
+        "  ODID v"
+    );
+
+    wsGfx->print(
+        snapshot.protocolVersion
+    );
+
+
+    // --------------------------------------------------------
+    // IDENTIFIER
+    // --------------------------------------------------------
+
+    wsGfx->setCursor(
+        24,
+        205
+    );
+
+    wsGfx->print(
+        "ID:"
+    );
+
+
+    if (!snapshot.displayIDValid) {
+
+        wsGfx->print(
+            "<not provided>"
+        );
+    }
+
+    else if (
+        outputMode == MODE_PRIVATE
+    ) {
+
+        wsGfx->print(
+            "[REDACTED]"
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            snapshot.displayID
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // POSITION
+    //
+    // Explicit LAT/LON labels avoid visually merging the comma
+    // separator with a negative longitude value.
+    // --------------------------------------------------------
+
+    wsGfx->setCursor(
+        24,
+        219
+    );
+
+
+    if (!snapshot.hasPosition) {
+
+        wsGfx->print(
+            "LAT:UNKNOWN   LON:UNKNOWN"
+        );
+    }
+
+    else if (
+        outputMode == MODE_PRIVATE
+    ) {
+
+        wsGfx->print(
+            "LAT:[REDACTED]   LON:[REDACTED]"
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "LAT:"
+        );
+
+        wsGfx->print(
+            snapshot.latitude,
+            5
+        );
+
+        wsGfx->print(
+            "   LON:"
+        );
+
+        wsGfx->print(
+            snapshot.longitude,
+            5
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // MOTION / ALTITUDE / PACKET COUNT
+    //
+    // Compact horizontal instrument row:
+    // B/G/R = barometric / geodetic / relative altitude.
+    // --------------------------------------------------------
+
+    wsGfx->setCursor(
+        24,
+        233
+    );
+
+    wsGfx->print(
+        "HDG:"
+    );
+
+
+    if (snapshot.directionValid) {
+
+        wsGfx->print(
+            snapshot.direction,
+            0
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "UNK"
+        );
+    }
+
+
+    wsGfx->print(
+        " HSPD:"
+    );
+
+
+    if (snapshot.horizontalSpeedValid) {
+
+        wsGfx->print(
+            snapshot.horizontalSpeed,
+            1
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "UNK"
+        );
+    }
+
+
+    wsGfx->print(
+        " VSPD:"
+    );
+
+
+    if (snapshot.verticalSpeedValid) {
+
+        wsGfx->print(
+            snapshot.verticalSpeed,
+            1
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "UNK"
+        );
+    }
+
+
+    wsGfx->print(
+        " B/G/R:"
+    );
+
+
+    if (snapshot.barometricAltitudeValid) {
+
+        wsGfx->print(
+            snapshot.barometricAltitude,
+            1
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "UNK"
+        );
+    }
+
+
+    wsGfx->print(
+        "/"
+    );
+
+
+    if (snapshot.geodeticAltitudeValid) {
+
+        wsGfx->print(
+            snapshot.geodeticAltitude,
+            1
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "UNK"
+        );
+    }
+
+
+    wsGfx->print(
+        "/"
+    );
+
+
+    if (snapshot.heightValid) {
+
+        wsGfx->print(
+            snapshot.height,
+            1
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "UNK"
+        );
+    }
+
+
+    wsGfx->print(
+        " PKTS:"
+    );
+
+    wsGfx->print(
+        snapshot.packetCount
+    );
+}
+
+
+// ============================================================
+// TARGETS VIEW
+// ============================================================
+
+void wsDrawTargetsView() {
+
+    wsDrawButton(
+        wsButtonT01,
+        wsUiSelectedTarget == 0,
+        WHITE
+    );
+
+
+    wsDrawButton(
+        wsButtonT02,
+        wsUiSelectedTarget == 1,
+        WHITE
+    );
+
+
+    wsDrawButton(
+        wsButtonT03,
+        wsUiSelectedTarget == 2,
+        WHITE
+    );
+
+
+    wsDrawButton(
+        wsButtonT04,
+        wsUiSelectedTarget == 3,
+        WHITE
+    );
+
+
+    wsDrawLiveTargetDataPanel();
+
+
+    // Full TARGETS redraw just refreshed the panel.
+    wsLastLiveTargetRefreshMs =
+        millis();
+}
+
+
+// ============================================================
+// WAVESHARE LIVE TARGET REFRESH SERVICE
+//
+// Refresh ONLY the selected-target data panel.
+// BLE capture and touch handling remain independent.
+// ============================================================
+
+void serviceWaveshareLiveTargetRefresh() {
+
+    if (
+        wsCurrentScreen
+            != WS_SCREEN_LIVE
+
+        || wsCurrentLiveView
+            != WS_VIEW_TARGETS
+    ) {
+
+        return;
+    }
+
+
+    uint32_t now =
+        millis();
+
+
+    if (
+        now
+        -
+        wsLastLiveTargetRefreshMs
+        <
+        WS_LIVE_TARGET_REFRESH_MS
+    ) {
+
+        return;
+    }
+
+
+    wsLastLiveTargetRefreshMs =
+        now;
+
+
+    wsDrawLiveTargetDataPanel();
+}
+
+
+// ============================================================
+// RADAR VIEW
+// ============================================================
+
+void wsDrawRadarView() {
+
+    // ========================================================
+    // D4D-D2A RADAR-FIRST LAYOUT
+    //
+    // LEFT:
+    //   Large north-up geographic scope.
+    //
+    // RIGHT:
+    //   Per-target geographic details.
+    //
+    // MODE and STOP remain at the lower-right using the
+    // existing large finger-friendly buttons.
+    //
+    // SNAPSHOT and RESCAN belong to TARGETS view and are not
+    // rendered here.
+    // ========================================================
+
+
+    // --------------------------------------------------------
+    // LEFT RADAR PANEL
+    // --------------------------------------------------------
+
+    wsGfx->fillRect(
+        10,
+        96,
+        225,
+        214,
+        BLACK
+    );
+
+
+    wsGfx->drawRoundRect(
+        10,
+        96,
+        225,
+        214,
+        8,
+        GREEN
+    );
+
+
+    // --------------------------------------------------------
+    // RIGHT TARGET-DATA PANEL
+    //
+    // Stops above MODE / STOP so periodic RADAR refreshes do
+    // not erase those controls.
+    // --------------------------------------------------------
+
+    wsGfx->fillRect(
+        245,
+        96,
+        225,
+        154,
+        BLACK
+    );
+
+
+    wsGfx->drawRoundRect(
+        245,
+        96,
+        225,
+        154,
+        8,
+        GREEN
+    );
+
+
+    const int16_t cx =
+        WS_RADAR_CENTER_X;
+
+    const int16_t cy =
+        WS_RADAR_CENTER_Y;
+
+    const int16_t radius =
+        WS_RADAR_RADIUS_PX;
+
+
+    // --------------------------------------------------------
+    // Geographic scope
+    // --------------------------------------------------------
+
+    // --------------------------------------------------------
+    // Subdued quadrant reference lines
+    //
+    // Drawn BEFORE the range rings so they remain background
+    // structure rather than competing with target/range data.
+    // --------------------------------------------------------
+
+    wsGfx->drawLine(
+        cx - radius,
+        cy,
+        cx + radius,
+        cy,
+        WS_COLOR_DARK_GREY
+    );
+
+
+    wsGfx->drawLine(
+        cx,
+        cy - radius,
+        cx,
+        cy + radius,
+        WS_COLOR_DARK_GREY
+    );
+
+
+    // Proportional range rings:
+    //
+    //   inner  = 1/3 displayed range
+    //   middle = 2/3 displayed range
+    //   outer  = full displayed range
+    //
+    // No distance labels are placed on the scope.
+    // RANGE defines the outer-ring scale.
+
+    wsGfx->drawCircle(
+        cx,
+        cy,
+        radius / 3,
+        WS_COLOR_GREY
+    );
+
+
+    wsGfx->drawCircle(
+        cx,
+        cy,
+        (radius * 2) / 3,
+        WS_COLOR_GREY
+    );
+
+
+    wsGfx->drawCircle(
+        cx,
+        cy,
+        radius,
+        WHITE
+    );
+
+
+    // Receiver-reference marker.
+
+    wsGfx->fillCircle(
+        cx,
+        cy,
+        4,
+        WHITE
+    );
+
+
+    // --------------------------------------------------------
+    // Cardinal labels
+    // --------------------------------------------------------
+
+    wsGfx->setTextSize(1);
+    wsGfx->setTextColor(GREEN);
+
+
+    wsGfx->setCursor(
+        cx - 3,
+        cy - radius - 10
+    );
+
+    wsGfx->print(
+        "N"
+    );
+
+
+    wsGfx->setCursor(
+        cx + radius + 6,
+        cy - 14
+    );
+
+    wsGfx->print(
+        "E"
+    );
+
+
+    wsGfx->setCursor(
+        cx - 3,
+        cy + radius + 3
+    );
+
+    wsGfx->print(
+        "S"
+    );
+
+
+    wsGfx->setCursor(
+        cx - radius - 12,
+        cy - 14
+    );
+
+    wsGfx->print(
+        "W"
+    );
+
+
+    // --------------------------------------------------------
+    // Right-panel fixed status fields.
+    // --------------------------------------------------------
+
+    wsGfx->setTextColor(
+        WHITE
+    );
+
+
+    wsGfx->setCursor(
+        255,
+        103
+    );
+
+    wsGfx->print(
+        "RANGE:"
+    );
+
+    wsGfx->print(
+        wsRadarDisplayRangeMeters,
+        0
+    );
+
+    wsGfx->print(
+        "m"
+    );
+
+
+    wsGfx->setCursor(
+        350,
+        103
+    );
+
+    wsGfx->print(
+        "REF:"
+    );
+
+
+    if (
+        wsReceiverReference.valid
+        &&
+        wsReceiverReference.source
+            == WS_REF_MANUAL_FIXED
+    ) {
+
+        wsGfx->print(
+            "FIXED"
+        );
+    }
+
+    else if (
+        wsReceiverReference.valid
+        &&
+        wsReceiverReference.source
+            == WS_REF_GNSS
+    ) {
+
+        wsGfx->print(
+            "GNSS"
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "NONE"
+        );
+    }
+
+
+    wsGfx->drawLine(
+        255,
+        117,
+        460,
+        117,
+        WS_COLOR_DARK_GREY
+    );
+
+
+    // --------------------------------------------------------
+    // Build, project and display each target.
+    // --------------------------------------------------------
+
+    uint8_t plottedTargetCount =
+        0;
+
+
+    for (
+        uint8_t i = 0;
+        i < MAX_TARGETS;
+        i++
+    ) {
+
+        const int16_t rowY =
+            125
+            +
+            static_cast<int16_t>(i) * 27;
+
+
+        WSUITargetSnapshot snapshot;
+
+
+        bool snapshotValid =
+            wsCaptureTargetSnapshot(
+                i,
+                snapshot
+            );
+
+
+        WSRadarTargetSolution solution;
+
+
+        bool solutionValid =
+            snapshotValid
+            &&
+            wsBuildRadarTargetSolution(
+                i,
+                snapshot,
+                solution
+            );
+
+
+        if (!solutionValid) {
+
+            wsGfx->setTextColor(
+                WS_COLOR_GREY
+            );
+
+            wsGfx->setCursor(
+                255,
+                rowY
+            );
+
+            wsGfx->print(
+                "T0"
+            );
+
+            wsGfx->print(
+                i + 1
+            );
+
+            wsGfx->print(
+                "  NO FRESH GEO"
+            );
+
+
+            wsGfx->setCursor(
+                255,
+                rowY + 11
+            );
+
+            wsGfx->print(
+                "DIST/BRG/HGT --"
+            );
+
+            continue;
+        }
+
+
+        WSRadarPlotPoint point;
+
+
+        if (
+            !wsProjectRadarTarget(
+                solution,
+                cx,
+                cy,
+                radius,
+                wsRadarDisplayRangeMeters,
+                point
+            )
+        ) {
+
+            wsGfx->setTextColor(
+                WS_COLOR_GREY
+            );
+
+            wsGfx->setCursor(
+                255,
+                rowY
+            );
+
+            wsGfx->print(
+                "T0"
+            );
+
+            wsGfx->print(
+                i + 1
+            );
+
+            wsGfx->print(
+                "  PLOT ERROR"
+            );
+
+            continue;
+        }
+
+
+        plottedTargetCount++;
+
+
+        const uint16_t targetColor =
+            point.offScale
+            ? YELLOW
+            : CYAN;
+
+
+        // ----------------------------------------------------
+        // Scope marker
+        // ----------------------------------------------------
+
+        wsGfx->fillCircle(
+            point.x,
+            point.y,
+            4,
+            targetColor
+        );
+
+
+        wsGfx->setTextColor(
+            targetColor
+        );
+
+
+        int16_t labelX =
+            point.x
+            + 6;
+
+        int16_t labelY =
+            point.y
+            - 4;
+
+
+        if (
+            labelX
+            >
+            210
+        ) {
+
+            labelX =
+                point.x
+                -
+                24;
+        }
+
+
+        if (
+            labelY
+            <
+            112
+        ) {
+
+            labelY =
+                point.y
+                +
+                7;
+        }
+
+
+        if (
+            labelY
+            >
+            292
+        ) {
+
+            labelY =
+                point.y
+                -
+                12;
+        }
+
+
+        wsGfx->setCursor(
+            labelX,
+            labelY
+        );
+
+        wsGfx->print(
+            "T0"
+        );
+
+        wsGfx->print(
+            i + 1
+        );
+
+
+        // ----------------------------------------------------
+        // Right-side target information
+        //
+        // Line 1:
+        //   Target ID / actual distance / true bearing
+        //
+        // Line 2:
+        //   truthful AGL or ATO height in feet when available
+        // ----------------------------------------------------
+
+        const long distanceMetersRounded =
+            lround(
+                solution.distanceMeters
+            );
+
+
+        int bearingRounded =
+            static_cast<int>(
+                lround(
+                    solution.bearingTrueDegrees
+                )
+            );
+
+
+        if (
+            bearingRounded
+            >= 360
+        ) {
+
+            bearingRounded -=
+                360;
+        }
+
+
+        wsGfx->setCursor(
+            255,
+            rowY
+        );
+
+        wsGfx->print(
+            "T0"
+        );
+
+        wsGfx->print(
+            i + 1
+        );
+
+        wsGfx->print(
+            " "
+        );
+
+        wsGfx->print(
+            distanceMetersRounded
+        );
+
+        wsGfx->print(
+            "m B"
+        );
+
+
+        if (
+            bearingRounded
+            < 100
+        ) {
+
+            wsGfx->print(
+                "0"
+            );
+        }
+
+
+        if (
+            bearingRounded
+            < 10
+        ) {
+
+            wsGfx->print(
+                "0"
+            );
+        }
+
+
+        wsGfx->print(
+            bearingRounded
+        );
+
+
+        if (
+            point.offScale
+        ) {
+
+            wsGfx->print(
+                " OFF"
+            );
+        }
+
+
+        wsGfx->setCursor(
+            255,
+            rowY + 11
+        );
+
+
+        if (
+            solution.heightValid
+        ) {
+
+            const long heightFeet =
+                lround(
+                    static_cast<double>(
+                        solution.heightMeters
+                    )
+                    *
+                    3.28084
+                );
+
+
+            wsGfx->print(
+                solution.heightFromGround
+                ? "AGL "
+                : "ATO "
+            );
+
+            wsGfx->print(
+                heightFeet
+            );
+
+            wsGfx->print(
+                "ft"
+            );
+        }
+
+        else {
+
+            wsGfx->setTextColor(
+                WS_COLOR_GREY
+            );
+
+            wsGfx->print(
+                "HGT UNKNOWN"
+            );
+        }
+    }
+
+
+    // --------------------------------------------------------
+    // Plot count / orientation
+    // --------------------------------------------------------
+
+    wsGfx->setTextColor(
+        WHITE
+    );
+
+    wsGfx->setCursor(
+        255,
+        229
+    );
+
+    wsGfx->print(
+        "PLOTS:"
+    );
+
+    wsGfx->print(
+        plottedTargetCount
+    );
+
+
+    wsGfx->setCursor(
+        390,
+        229
+    );
+
+    wsGfx->print(
+        "N-UP"
+    );
+
+
+    wsLastRadarRefreshMs =
+        millis();
+}
+
+
+// ============================================================
+// WAVESHARE LIVE RADAR REFRESH SERVICE
+//
+// Refresh only the RADAR content region.
+// BLE capture, TARGETS view and touch remain independent.
+// ============================================================
+
+void serviceWaveshareRadarRefresh() {
+
+    if (
+        wsCurrentScreen
+            != WS_SCREEN_LIVE
+
+        ||
+        wsCurrentLiveView
+            != WS_VIEW_RADAR
+    ) {
+
+        return;
+    }
+
+
+    const uint32_t now =
+        millis();
+
+
+    if (
+        now
+        -
+        wsLastRadarRefreshMs
+        <
+        WS_RADAR_REFRESH_MS
+    ) {
+
+        return;
+    }
+
+
+    wsLastRadarRefreshMs =
+        now;
+
+
+    wsDrawRadarView();
+}
+
+
+// ============================================================
+// LIVE SCREEN
+// ============================================================
+
+void wsDrawLiveScreen() {
+
+    wsGfx->fillScreen(
+        BLACK
+    );
+
+
+    wsDrawHeader(
+        "RID LIVE",
+        true
+    );
+
+
+    wsDrawLiveTabs();
+
+
+    if (
+        wsCurrentLiveView
+        == WS_VIEW_TARGETS
+    ) {
+
+        wsDrawTargetsView();
+    }
+
+    else {
+
+        wsDrawRadarView();
+    }
+
+
+    if (
+        wsCurrentLiveView
+        == WS_VIEW_TARGETS
+    ) {
+
+        wsDrawButton(
+            wsButtonSnapshot,
+            false,
+            WHITE
+        );
+
+
+        wsDrawButton(
+            wsButtonRescan,
+            false,
+            WHITE
+        );
+    }
+
+
+    // MODE and STOP remain available from both live views.
+
+    wsDrawButton(
+        wsButtonMode,
+        false,
+        YELLOW
+    );
+
+
+    wsDrawButton(
+        wsButtonStop,
+        false,
+        RED
+    );
+}
+
+
+// ============================================================
+// SNAPSHOT SCREEN
+//
+// Renders ONLY the frozen fixed-size snapshot captured by D1.
+// The live BLE receiver continues running underneath this view.
+// ============================================================
+
+const char *wsSnapshotStateName(
+    const WSUITargetSnapshot &snapshot
+) {
+
+    switch (snapshot.stateCode) {
+
+        case 1:
+            return "ACTIVE";
+
+        case 2:
+            return "STALE";
+
+        case 3:
+            return "LOST";
+
+        default:
+            return "EMPTY";
+    }
+}
+
+
+void wsDrawSnapshotScreen() {
+
+    wsGfx->fillScreen(
+        BLACK
+    );
+
+
+    // Do NOT use the live mode indicator here.
+    // Snapshot privacy belongs to the frozen capture itself.
+
+    wsDrawHeader(
+        "TARGET SNAPSHOT",
+        false
+    );
+
+
+    bool privateSnapshot =
+        wsFrozenSnapshotMode
+        == MODE_PRIVATE;
+
+
+    wsGfx->setTextSize(1);
+
+    wsGfx->setTextColor(
+        privateSnapshot
+        ? CYAN
+        : YELLOW
+    );
+
+    wsGfx->setCursor(
+        privateSnapshot
+        ? 420
+        : 438,
+        16
+    );
+
+    wsGfx->print(
+        privateSnapshot
+        ? "PRIVATE"
+        : "OPEN"
+    );
+
+
+    uint16_t stateColor =
+        WS_COLOR_GREY;
+
+
+    switch (
+        wsFrozenSnapshot.stateCode
+    ) {
+
+        case 1:
+            stateColor = GREEN;
+            break;
+
+        case 2:
+            stateColor = YELLOW;
+            break;
+
+        case 3:
+            stateColor = RED;
+            break;
+
+        default:
+            stateColor = WS_COLOR_GREY;
+            break;
+    }
+
+
+    wsGfx->drawRoundRect(
+        10,
+        50,
+        460,
+        198,
+        8,
+        stateColor
+    );
+
+
+    wsGfx->setTextSize(2);
+    wsGfx->setTextColor(
+        stateColor
+    );
+
+    wsGfx->setCursor(
+        24,
+        62
+    );
+
+    wsGfx->print(
+        "T0"
+    );
+
+    wsGfx->print(
+        wsFrozenSnapshotTarget + 1
+    );
+
+    wsGfx->print(
+        "  "
+    );
+
+    wsGfx->print(
+        wsSnapshotStateName(
+            wsFrozenSnapshot
+        )
+    );
+
+
+    if (
+        !wsFrozenSnapshotCaptured
+        || !wsFrozenSnapshot.allocated
+    ) {
+
+        wsGfx->setTextSize(2);
+        wsGfx->setTextColor(YELLOW);
+
+        wsGfx->setCursor(
+            74,
+            112
+        );
+
+        wsGfx->print(
+            "NO ALLOCATED TARGET"
+        );
+
+
+        wsGfx->setTextSize(1);
+        wsGfx->setTextColor(WHITE);
+
+        wsGfx->setCursor(
+            116,
+            151
+        );
+
+        wsGfx->print(
+            "EMPTY SNAPSHOT - RECEIVER STILL LIVE"
+        );
+
+
+        wsDrawButton(
+            wsButtonBackLive,
+            false,
+            CYAN
+        );
+
+        return;
+    }
+
+
+    wsGfx->setTextSize(1);
+    wsGfx->setTextColor(WHITE);
+
+
+    // --------------------------------------------------------
+    // TYPE / FLIGHT / RSSI
+    // --------------------------------------------------------
+
+    wsGfx->setCursor(
+        24,
+        93
+    );
+
+    wsGfx->print(
+        "TYPE: "
+    );
+
+    wsGfx->print(
+        uaTypeName(
+            wsFrozenSnapshot.uaType
+        )
+    );
+
+    wsGfx->print(
+        "   FLIGHT: "
+    );
+
+    wsGfx->print(
+        flightStatusName(
+            wsFrozenSnapshot.flightStatus
+        )
+    );
+
+    wsGfx->print(
+        "   RSSI: "
+    );
+
+    wsGfx->print(
+        wsFrozenSnapshot.filteredRSSI
+    );
+
+    wsGfx->print(
+        " dBm"
+    );
+
+
+    // --------------------------------------------------------
+    // HEADING / SPEED
+    // --------------------------------------------------------
+
+    wsGfx->setCursor(
+        24,
+        113
+    );
+
+    wsGfx->print(
+        "HDG: "
+    );
+
+    if (
+        wsFrozenSnapshot.directionValid
+    ) {
+
+        wsGfx->print(
+            wsFrozenSnapshot.direction,
+            0
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "UNK"
+        );
+    }
+
+
+    wsGfx->print(
+        "   HSPD: "
+    );
+
+    if (
+        wsFrozenSnapshot.horizontalSpeedValid
+    ) {
+
+        wsGfx->print(
+            wsFrozenSnapshot.horizontalSpeed,
+            1
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "UNK"
+        );
+    }
+
+
+    wsGfx->print(
+        "   VSPD: "
+    );
+
+    if (
+        wsFrozenSnapshot.verticalSpeedValid
+    ) {
+
+        wsGfx->print(
+            wsFrozenSnapshot.verticalSpeed,
+            1
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "UNK"
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // IDENTIFIER
+    // --------------------------------------------------------
+
+    wsGfx->setCursor(
+        24,
+        133
+    );
+
+    wsGfx->print(
+        "ID: "
+    );
+
+
+    if (
+        !wsFrozenSnapshot.displayIDValid
+    ) {
+
+        wsGfx->print(
+            "<not provided>"
+        );
+    }
+
+    else if (
+        privateSnapshot
+    ) {
+
+        wsGfx->print(
+            "[REDACTED]"
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            wsFrozenSnapshot.displayID
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // POSITION
+    // --------------------------------------------------------
+
+    wsGfx->setCursor(
+        24,
+        153
+    );
+
+    wsGfx->print(
+        "POS: "
+    );
+
+
+    if (
+        !wsFrozenSnapshot.hasPosition
+    ) {
+
+        wsGfx->print(
+            "UNKNOWN"
+        );
+    }
+
+    else if (
+        privateSnapshot
+    ) {
+
+        wsGfx->print(
+            "VALID [REDACTED]"
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            wsFrozenSnapshot.latitude,
+            6
+        );
+
+        wsGfx->print(
+            ", "
+        );
+
+        wsGfx->print(
+            wsFrozenSnapshot.longitude,
+            6
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // ALTITUDE
+    // --------------------------------------------------------
+
+    wsGfx->setCursor(
+        24,
+        173
+    );
+
+    wsGfx->print(
+        "ALT B:"
+    );
+
+    if (
+        wsFrozenSnapshot.barometricAltitudeValid
+    ) {
+
+        wsGfx->print(
+            wsFrozenSnapshot.barometricAltitude,
+            1
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "UNK"
+        );
+    }
+
+
+    wsGfx->print(
+        "  G:"
+    );
+
+    if (
+        wsFrozenSnapshot.geodeticAltitudeValid
+    ) {
+
+        wsGfx->print(
+            wsFrozenSnapshot.geodeticAltitude,
+            1
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "UNK"
+        );
+    }
+
+
+    wsGfx->print(
+        "  R:"
+    );
+
+    if (
+        wsFrozenSnapshot.heightValid
+    ) {
+
+        wsGfx->print(
+            wsFrozenSnapshot.height,
+            1
+        );
+    }
+
+    else {
+
+        wsGfx->print(
+            "UNK"
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // PACKETS / PROTOCOL
+    // --------------------------------------------------------
+
+    wsGfx->setCursor(
+        24,
+        193
+    );
+
+    wsGfx->print(
+        "PKTS: "
+    );
+
+    wsGfx->print(
+        wsFrozenSnapshot.packetCount
+    );
+
+    wsGfx->print(
+        "   ODID v"
+    );
+
+    wsGfx->print(
+        wsFrozenSnapshot.protocolVersion
+    );
+
+
+    // --------------------------------------------------------
+    // Explicitly communicate that this is not the live table.
+    // --------------------------------------------------------
+
+    wsGfx->setTextColor(
+        WS_COLOR_GREY
+    );
+
+    wsGfx->setCursor(
+        96,
+        225
+    );
+
+    wsGfx->print(
+        "FROZEN COPY - LIVE RECEIVER CONTINUES"
+    );
+
+
+    wsDrawButton(
+        wsButtonBackLive,
+        false,
+        CYAN
+    );
+}
+
+
+// ============================================================
+// CURRENT SCREEN DRAW
+// ============================================================
+
+void wsDrawCurrentScreen() {
+
+    switch (
+        wsCurrentScreen
+    ) {
+
+        case WS_SCREEN_HOME:
+
+            wsDrawHomeScreen();
+            break;
+
+
+        case WS_SCREEN_PRIVACY:
+
+            wsDrawPrivacyScreen();
+            break;
+
+
+        case WS_SCREEN_LIVE:
+
+            wsDrawLiveScreen();
+            break;
+
+
+        case WS_SCREEN_SNAPSHOT:
+
+            wsDrawSnapshotScreen();
+            break;
+    }
+}
+
+
+// ============================================================
+// TOUCH HIT TEST
+// ============================================================
+
+WSButtonID wsHitTest(
+    int16_t x,
+    int16_t y
+) {
+
+    switch (
+        wsCurrentScreen
+    ) {
+
+        case WS_SCREEN_HOME:
+
+            if (
+                wsPointInside(
+                    x,
+                    y,
+                    wsButtonBegin
+                )
+            ) {
+
+                return WS_BTN_BEGIN;
+            }
+
+            break;
+
+
+        case WS_SCREEN_PRIVACY:
+
+            if (
+                wsPointInside(
+                    x,
+                    y,
+                    wsButtonPrivate
+                )
+            ) {
+
+                return WS_BTN_PRIVATE;
+            }
+
+
+            if (
+                wsPointInside(
+                    x,
+                    y,
+                    wsButtonOpen
+                )
+            ) {
+
+                return WS_BTN_OPEN;
+            }
+
+
+            if (
+                wsPointInside(
+                    x,
+                    y,
+                    wsButtonStart
+                )
+            ) {
+
+                return WS_BTN_START;
+            }
+
+
+            if (
+                wsPointInside(
+                    x,
+                    y,
+                    wsButtonBack
+                )
+            ) {
+
+                return WS_BTN_BACK;
+            }
+
+            break;
+
+
+        case WS_SCREEN_LIVE:
+
+            if (
+                wsPointInside(
+                    x,
+                    y,
+                    wsButtonTargetsTab
+                )
+            ) {
+
+                return WS_BTN_TAB_TARGETS;
+            }
+
+
+            if (
+                wsPointInside(
+                    x,
+                    y,
+                    wsButtonRadarTab
+                )
+            ) {
+
+                return WS_BTN_TAB_RADAR;
+            }
+
+
+            if (
+                wsCurrentLiveView
+                == WS_VIEW_TARGETS
+            ) {
+
+                if (
+                    wsPointInside(
+                        x,
+                        y,
+                        wsButtonT01
+                    )
+                ) {
+
+                    return WS_BTN_T01;
+                }
+
+
+                if (
+                    wsPointInside(
+                        x,
+                        y,
+                        wsButtonT02
+                    )
+                ) {
+
+                    return WS_BTN_T02;
+                }
+
+
+                if (
+                    wsPointInside(
+                        x,
+                        y,
+                        wsButtonT03
+                    )
+                ) {
+
+                    return WS_BTN_T03;
+                }
+
+
+                if (
+                    wsPointInside(
+                        x,
+                        y,
+                        wsButtonT04
+                    )
+                ) {
+
+                    return WS_BTN_T04;
+                }
+            }
+
+
+            if (
+                wsCurrentLiveView
+                == WS_VIEW_TARGETS
+            ) {
+
+                if (
+                    wsPointInside(
+                        x,
+                        y,
+                        wsButtonSnapshot
+                    )
+                ) {
+
+                    return WS_BTN_SNAPSHOT;
+                }
+
+
+                if (
+                    wsPointInside(
+                        x,
+                        y,
+                        wsButtonRescan
+                    )
+                ) {
+
+                    return WS_BTN_RESCAN;
+                }
+            }
+
+
+            if (
+                wsPointInside(
+                    x,
+                    y,
+                    wsButtonMode
+                )
+            ) {
+
+                return WS_BTN_MODE;
+            }
+
+
+            if (
+                wsPointInside(
+                    x,
+                    y,
+                    wsButtonStop
+                )
+            ) {
+
+                return WS_BTN_STOP;
+            }
+
+            break;
+
+
+        case WS_SCREEN_SNAPSHOT:
+
+            if (
+                wsPointInside(
+                    x,
+                    y,
+                    wsButtonBackLive
+                )
+            ) {
+
+                return WS_BTN_BACK_LIVE;
+            }
+
+            break;
+    }
+
+
+    return WS_BTN_NONE;
+}
+
+
+// ============================================================
+// BUTTON NAME
+// ============================================================
+
+const char *wsButtonName(
+    WSButtonID button
+) {
+
+    switch (button) {
+
+        case WS_BTN_BEGIN:
+            return "BEGIN";
+
+        case WS_BTN_PRIVATE:
+            return "PRIVATE";
+
+        case WS_BTN_OPEN:
+            return "OPEN";
+
+        case WS_BTN_START:
+            return "START";
+
+        case WS_BTN_BACK:
+            return "BACK";
+
+        case WS_BTN_TAB_TARGETS:
+            return "TAB_TARGETS";
+
+        case WS_BTN_TAB_RADAR:
+            return "TAB_RADAR";
+
+        case WS_BTN_T01:
+            return "T01";
+
+        case WS_BTN_T02:
+            return "T02";
+
+        case WS_BTN_T03:
+            return "T03";
+
+        case WS_BTN_T04:
+            return "T04";
+
+        case WS_BTN_SNAPSHOT:
+            return "SNAPSHOT";
+
+        case WS_BTN_RESCAN:
+            return "RESCAN";
+
+        case WS_BTN_MODE:
+            return "MODE";
+
+        case WS_BTN_STOP:
+            return "STOP";
+
+        case WS_BTN_BACK_LIVE:
+            return "BACK_LIVE";
+
+        default:
+            return "NONE";
+    }
+}
+
+
+// ============================================================
+// WAVESHARE BUTTON PROCESSING
+//
+// Stage 1B-B owns real privacy mode and capture START / STOP.
+// RESCAN owns a real fresh backend restart.
+// SNAPSHOT freezes a mutex-protected target copy and opens
+// a dedicated frozen-data screen while BLE remains active.
+// ============================================================
+
+void wsProcessButton(
+    WSButtonID button
+) {
+
+    bool redraw = true;
+
+
+    switch (button) {
+
+        case WS_BTN_BEGIN:
+
+            outputMode = MODE_PRIVATE;
+            wsUiPrivateSelected = true;
+            wsUiSelectedTarget = 0;
+            wsUiSessionStarted = false;
+            wsFrozenSnapshotCaptured = false;
+            wsRadarReady = false;
+            wsCurrentLiveView = WS_VIEW_TARGETS;
+
+            wsCurrentScreen =
+                WS_SCREEN_PRIVACY;
+
+            Serial.println(
+                "[UI] BEGIN -> OUTPUT MODE / backend PRIVATE / scanner IDLE."
+            );
+
+            break;
+
+
+        case WS_BTN_PRIVATE:
+
+            outputMode = MODE_PRIVATE;
+            wsUiPrivateSelected = true;
+
+            Serial.println(
+                "[UI] Output mode -> PRIVATE."
+            );
+
+            break;
+
+
+        case WS_BTN_OPEN:
+
+            outputMode = MODE_OPEN;
+            wsUiPrivateSelected = false;
+
+            Serial.println(
+                "[UI] Output mode -> OPEN."
+            );
+
+            break;
+
+
+        case WS_BTN_START:
+
+            if (scanSessionActive) {
+
+                Serial.println(
+                    "[UI] START ignored: RID session already active."
+                );
+
+                redraw = false;
+                break;
+            }
+
+
+            resetRIDCaptureState();
+
+            wsUiSessionStarted = false;
+            wsRadarReady = false;
+
+            wsCurrentLiveView =
+                WS_VIEW_TARGETS;
+
+
+            if (startRIDScanAsync()) {
+
+                wsUiSessionStarted = true;
+
+                // D4D-D1 temporary synthetic visual test.
+                wsInstallRadarVisualTestTargets();
+
+                wsCurrentScreen =
+                    WS_SCREEN_LIVE;
+
+                Serial.println(
+                    "[UI] START SCAN -> TARGETS / backend ACTIVE."
+                );
+
+                Serial.println(
+                    "[UI] RADAR state = ACQUIRING."
+                );
+            }
+
+            else {
+
+                Serial.println(
+                    "[UI ERROR] START SCAN failed; remaining on OUTPUT MODE."
+                );
+            }
+
+            break;
+
+
+        case WS_BTN_BACK:
+
+            wsCurrentScreen =
+                WS_SCREEN_HOME;
+
+            Serial.println(
+                "[UI-SHELL] BACK -> HOME"
+            );
+
+            break;
+
+
+        case WS_BTN_BACK_LIVE:
+
+            wsCurrentScreen =
+                WS_SCREEN_LIVE;
+
+            Serial.println(
+                "[UI] SNAPSHOT -> BACK TO LIVE."
+            );
+
+            break;
+
+
+        case WS_BTN_TAB_TARGETS:
+
+            wsCurrentLiveView =
+                WS_VIEW_TARGETS;
+
+            Serial.println(
+                "[UI-SHELL] VIEW -> TARGETS"
+            );
+
+            break;
+
+
+        case WS_BTN_TAB_RADAR:
+
+            if (!wsRadarReady) {
+
+                redraw = false;
+
+                Serial.println(
+                    "[UI-SHELL] RADAR unavailable: ACQUIRING geographic prerequisites."
+                );
+
+                break;
+            }
+
+
+            wsCurrentLiveView =
+                WS_VIEW_RADAR;
+
+            Serial.println(
+                "[UI-SHELL] VIEW -> RADAR"
+            );
+
+            break;
+
+
+        case WS_BTN_T01:
+
+            wsUiSelectedTarget = 0;
+
+            Serial.println(
+                "[UI-SHELL] SELECT T01"
+            );
+
+            break;
+
+
+        case WS_BTN_T02:
+
+            wsUiSelectedTarget = 1;
+
+            Serial.println(
+                "[UI-SHELL] SELECT T02"
+            );
+
+            break;
+
+
+        case WS_BTN_T03:
+
+            wsUiSelectedTarget = 2;
+
+            Serial.println(
+                "[UI-SHELL] SELECT T03"
+            );
+
+            break;
+
+
+        case WS_BTN_T04:
+
+            wsUiSelectedTarget = 3;
+
+            Serial.println(
+                "[UI-SHELL] SELECT T04"
+            );
+
+            break;
+
+
+        case WS_BTN_SNAPSHOT:
+
+            if (!scanSessionActive) {
+
+                Serial.println(
+                    "[UI] SNAPSHOT ignored: no active RID session."
+                );
+
+                break;
+            }
+
+
+            wsFrozenSnapshotTarget =
+                wsUiSelectedTarget;
+
+            wsFrozenSnapshotMode =
+                outputMode;
+
+            wsFrozenSnapshotCapturedMs =
+                millis();
+
+
+            wsFrozenSnapshotCaptured =
+                wsCaptureTargetSnapshot(
+                    wsUiSelectedTarget,
+                    wsFrozenSnapshot
+                );
+
+
+            Serial.print(
+                "[UI] SNAPSHOT T0"
+            );
+
+            Serial.print(
+                wsUiSelectedTarget + 1
+            );
+
+            Serial.print(
+                wsFrozenSnapshotCaptured
+                ? " FROZEN / "
+                : " EMPTY / "
+            );
+
+            Serial.println(
+                wsFrozenSnapshotMode
+                    == MODE_PRIVATE
+                ? "PRIVATE"
+                : "OPEN"
+            );
+
+
+            wsCurrentScreen =
+                WS_SCREEN_SNAPSHOT;
+
+            break;
+
+
+        case WS_BTN_RESCAN:
+
+            if (!scanSessionActive) {
+
+                redraw = false;
+
+                Serial.println(
+                    "[UI] RESCAN ignored: no active RID session."
+                );
+
+                break;
+            }
+
+
+            // A RESCAN creates a new capture generation.
+            // Do not carry a frozen target from the prior
+            // generation into the fresh session.
+            wsFrozenSnapshotCaptured = false;
+
+
+            wsRadarReady = false;
+
+
+            if (restartRIDScanFromUI()) {
+
+                wsUiSessionStarted = true;
+
+                Serial.println(
+                    "[UI] RESCAN complete / fresh RID capture ACTIVE."
+                );
+
+                Serial.println(
+                    "[UI] RADAR state = ACQUIRING."
+                );
+            }
+
+            else {
+
+                // Mirror the backend's actual state.
+                // A failed RESCAN may occur before the existing
+                // scan session has been successfully retired.
+                wsUiSessionStarted =
+                    scanSessionActive;
+
+                Serial.println(
+                    "[UI ERROR] RESCAN failed."
+                );
+            }
+
+            break;
+
+
+        case WS_BTN_MODE:
+
+            outputMode =
+                outputMode == MODE_PRIVATE
+                ? MODE_OPEN
+                : MODE_PRIVATE;
+
+            wsUiPrivateSelected =
+                outputMode == MODE_PRIVATE;
+
+            Serial.println(
+                outputMode == MODE_PRIVATE
+                ? "[UI] Output mode -> PRIVATE."
+                : "[UI] Output mode -> OPEN."
+            );
+
+            break;
+
+
+        case WS_BTN_STOP:
+
+            if (scanSessionActive) {
+
+                if (requestStopRIDScan()) {
+
+                    Serial.println(
+                        "[UI] STOP / HOME requested."
+                    );
+                }
+
+                else {
+
+                    Serial.println(
+                        "[UI ERROR] STOP request failed."
+                    );
+                }
+            }
+
+            else {
+
+                Serial.println(
+                    "[UI] STOP / HOME: receiver already idle."
+                );
+            }
+
+
+            wsUiSessionStarted = false;
+            wsRadarReady = false;
+
+            wsCurrentLiveView =
+                WS_VIEW_TARGETS;
+
+            wsCurrentScreen =
+                WS_SCREEN_HOME;
+
+            break;
+
+
+        default:
+
+            redraw = false;
+            break;
+    }
+
+
+    if (redraw) {
+
+        wsDrawCurrentScreen();
+    }
+}
+
+
+// ============================================================
+// CAPACITIVE TOUCH SERVICE
+//
+// Action requires:
+//   DOWN inside a control
+//   UP inside the SAME control
+//
+// This gives us basic protection against accidental drags
+// and hand movement.
+// ============================================================
+
+void serviceWaveshareTouchUI() {
+
+    if (
+        millis() - wsLastTouchPollMs
+        < WS_TOUCH_POLL_MS
+    ) {
+
+        return;
+    }
+
+
+    wsLastTouchPollMs =
+        millis();
+
+
+    int16_t rawX[1];
+    int16_t rawY[1];
+
+
+    uint8_t touched =
+        wsTouch.getPoint(
+            rawX,
+            rawY,
+            1
+        );
+
+
+    if (touched) {
+
+        // Proven Rotation-1 transform:
+        //
+        // screen X = raw Y
+        // screen Y = 319 - raw X
+
+        int16_t screenX =
+            constrain(
+                rawY[0],
+                0,
+                wsGfx->width() - 1
+            );
+
+
+        int16_t screenY =
+            constrain(
+                (WS_LCD_HOR_RES - 1)
+                - rawX[0],
+                0,
+                wsGfx->height() - 1
+            );
+
+
+        wsTouchLastX =
+            screenX;
+
+        wsTouchLastY =
+            screenY;
+
+
+        if (!wsTouchWasDown) {
+
+            wsTouchWasDown = true;
+
+
+            wsTouchDownButton =
+                wsHitTest(
+                    screenX,
+                    screenY
+                );
+
+
+            Serial.printf(
+                "[TOUCH-DOWN] x=%d y=%d button=%s\n",
+                screenX,
+                screenY,
+                wsButtonName(
+                    wsTouchDownButton
+                )
+            );
+        }
+
+
+        return;
+    }
+
+
+    if (!wsTouchWasDown) {
+
+        return;
+    }
+
+
+    wsTouchWasDown =
+        false;
+
+
+    WSButtonID releaseButton =
+        wsHitTest(
+            wsTouchLastX,
+            wsTouchLastY
+        );
+
+
+    Serial.printf(
+        "[TOUCH-UP] x=%d y=%d button=%s\n",
+        wsTouchLastX,
+        wsTouchLastY,
+        wsButtonName(
+            releaseButton
+        )
+    );
+
+
+    if (
+        wsTouchDownButton
+            != WS_BTN_NONE
+
+        && releaseButton
+            == wsTouchDownButton
+    ) {
+
+        wsProcessButton(
+            releaseButton
+        );
+    }
+
+    else {
+
+        Serial.println(
+            "[UI-SHELL] TOUCH CANCELLED"
+        );
+    }
+
+
+    wsTouchDownButton =
+        WS_BTN_NONE;
+}
+
+
+void drawWaveshareOrientationTest() {
+
+    wsGfx->fillScreen(BLACK);
+
+    const int16_t w = wsGfx->width();
+    const int16_t h = wsGfx->height();
+
+    wsGfx->drawRect(
+        0,
+        0,
+        w,
+        h,
+        WHITE
+    );
+
+    wsGfx->setTextSize(2);
+    wsGfx->setTextColor(CYAN);
+
+    wsGfx->setCursor(135, 20);
+    wsGfx->println("TOP");
+
+    wsGfx->setTextColor(WHITE);
+
+    wsGfx->setCursor(12, 145);
+    wsGfx->println("LEFT");
+
+    wsGfx->setCursor(w - 75, 145);
+    wsGfx->println("RIGHT");
+
+    wsGfx->setCursor(115, h - 30);
+    wsGfx->println("BOTTOM");
+
+
+    wsGfx->drawLine(
+        w / 2 - 20,
+        h / 2,
+        w / 2 + 20,
+        h / 2,
+        GREEN
+    );
+
+    wsGfx->drawLine(
+        w / 2,
+        h / 2 - 20,
+        w / 2,
+        h / 2 + 20,
+        GREEN
+    );
+
+
+    wsGfx->setTextColor(YELLOW);
+    wsGfx->setCursor(135, 95);
+    wsGfx->println("LANDSCAPE TEST");
+
+    wsGfx->setCursor(165, 120);
+    wsGfx->println("ROTATION 1");
+
+
+    char dimensions[32];
+
+    snprintf(
+        dimensions,
+        sizeof(dimensions),
+        "%d x %d",
+        w,
+        h
+    );
+
+    wsGfx->setTextColor(GREEN);
+    wsGfx->setCursor(190, 195);
+    wsGfx->println(dimensions);
+}
+
+
+// ============================================================
+// ESP32-S3 BACKEND + DISPLAY MIGRATION HARNESS
+// ============================================================
+
+void setup() {
+
+    Serial.begin(115200);
+
+    // ESP32-S3 native USB HWCDC:
+    // Prevent unconsumed Serial TX from stalling the receiver
+    // when no serial monitor is actively reading output.
+    Serial.setTxTimeoutMs(0);
+
+    delay(STARTUP_DELAY_MS);
+
+
+    targetMutex =
+        xSemaphoreCreateMutex();
+
+    if (targetMutex == nullptr) {
+        Serial.println(
+            "[FATAL] target mutex allocation failed."
+        );
+
+        while (true) {
+            delay(1000);
+        }
+    }
+
+    outputMode = MODE_PRIVATE;
+
+
+    // ------------------------------------------------
+    // Waveshare display bring-up
+    // Proven hardware path from Touch_Bringup.
+    // Touch is intentionally not enabled yet.
+    // ------------------------------------------------
+
+    Wire.begin(
+        WS_I2C_SDA,
+        WS_I2C_SCL
+    );
+
+    wsTCA.begin();
+    wsTCA.pinMode1(
+        1,
+        OUTPUT
+    );
+
+    wsLcdReset();
+
+    if (!wsGfx->begin()) {
+
+        Serial.println(
+            "[FATAL] Waveshare gfx->begin() failed."
+        );
+
+        while (true) {
+            delay(1000);
+        }
+    }
+
+    pinMode(
+        WS_GFX_BL,
+        OUTPUT
+    );
+
+    digitalWrite(
+        WS_GFX_BL,
+        HIGH
+    );
+
+    // First physical-orientation candidate:
+    // landscape, rotation 1.
+    wsGfx->setRotation(1);
+
+    wsDrawCurrentScreen();
+
+    Serial.printf(
+        "[DISPLAY] Rotation 1 / width=%d / height=%d\n",
+        wsGfx->width(),
+        wsGfx->height()
+    );
+
+    if (!wsTouch.begin(
+            Wire,
+            FT6X36_SLAVE_ADDRESS
+        )) {
+
+        Serial.println(
+            "[FATAL] FT6X36 touch controller not found."
+        );
+
+        while (true) {
+            delay(1000);
+        }
+    }
+
+    Serial.println(
+        "[TOUCH] FT6X36 detected / TARGETS-RADAR UI shell active."
+    );
+
+
+    BLEDevice::init("");
+
+    pBLEScan =
+        BLEDevice::getScan();
+
+    pBLEScan->setActiveScan(false);
+    pBLEScan->setInterval(100);
+    pBLEScan->setWindow(99);
+
+    pBLEScan->setAdvertisedDeviceCallbacks(
+        &ridCallbacks,
+        true,
+        false
+    );
+
+    resetRIDCaptureState();
+
+    Serial.println();
+    Serial.println(
+        "========================================"
+    );
+    Serial.println(
+        " ESP32-S3 RID BACKEND PARITY HARNESS"
+    );
+    Serial.println(
+        " ACCEPTED CYD1 RID ENGINE / NO UI"
+    );
+    Serial.println(
+        "========================================"
+    );
+    Serial.println(
+        "Boot state: HOME / BLE READY / PRIVATE / IDLE"
+    );
+    Serial.println(
+        "Serial commands P/O/S remain available."
+    );
+    Serial.println();
+
+    // Stage 1B-A:
+    // BLE is initialized and ready, but the receiver remains IDLE
+    // until the operator explicitly starts a capture session.
+    //
+    // Do NOT auto-start RID scanning from setup().
+    scanSessionActive = false;
+    scanCompletePending = false;
+    scanStopRequested = false;
+
+    Serial.println(
+        "[SCAN] Receiver idle - awaiting operator START."
+    );
+}
+
+
+// ============================================================
+// LOOP
+// ============================================================
+
+void loop() {
+
+    processSerialCommands();
+    serviceRIDScanState();
+    serviceWaveshareTouchUI();
+    wsServiceRadarVisualTest();
+    serviceWaveshareRadarReadiness();
+    serviceWaveshareLiveTargetRefresh();
+    serviceWaveshareRadarRefresh();
+    serviceTargetDashboard();
+
+    delay(15);
+}

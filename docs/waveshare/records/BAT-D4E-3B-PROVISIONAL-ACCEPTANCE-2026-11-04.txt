@@ -1,0 +1,53 @@
+RID-01 BAT-D4E-3B
+PROVISIONAL ACCEPTANCE — 2026-11-04
+
+CANDIDATE:
+2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670
+
+ROLLBACK BAT-D4D-R2:
+a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e
+
+ACCEPTED SCOPE:
+
+1. Clean Arduino compilation: PASS.
+2. R1 simulated warning state machine: PASS 12/12.
+3. R2 simulated warning display and recovery: PASS.
+4. BAT-D4E-3B USB-only UI regression: PASS.
+5. BAT-D4E-3C 15-minute LiPo-only regression: PASS.
+   Started 3.83V / EST73%.
+   Ended 3.78V / EST65%.
+   Minimum observed approximately 3.77V.
+   No false warning or abnormal thermal observation.
+6. BAT-D4E-3D real Ruko R111S tests: PASS.
+   Test 1: 1012 validated RID packets.
+   Test 2: 961 validated RID packets.
+   Three continuous scan windows per test.
+   T01 ACTIVE and valid-position reports.
+   START, TARGETS, SNAPSHOT, STOP/HOME passed.
+7. RADAR reference READY observed.
+   Temporary ACQUIRING then READY also observed.
+
+PROVISIONAL WARNING:
+Activation <=3700mV for 15 seconds.
+Recovery >=3800mV for 30 seconds.
+Battery-present and telemetry-valid gating.
+Operator warning only. No automatic shutdown.
+
+NOT YET QUALIFIED:
+- Physical activation at actual low battery voltage.
+- Full fuel-gauge calibration or battery capacity.
+- Actual charge termination.
+- Direct battery-cell temperature monitoring.
+- Full RADAR geographic plotting fidelity.
+- Current-build STALE-to-LOST aircraft-off regression.
+- GNSS and Wi-Fi integration and loaded endurance.
+- Absolute packet-loss performance.
+
+QA FOLLOW-UP:
+Some final serial summary fields were truncated
+or merged. Preserve raw logs locally.
+Do not treat corrupted totals as verified target counts.
+
+The frozen source is an accepted provisional milestone.
+No claim of final product certification or battery
+safety qualification is implied.

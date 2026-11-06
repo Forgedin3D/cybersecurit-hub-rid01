@@ -1,3 +1,5 @@
+> **Current-state reconciliation — November 6, 2026:** Read [Waveshare pre-GNSS status](waveshare/STATUS.md), [build procedure](waveshare/BUILD.md) and [validation](waveshare/VALIDATION.md) alongside this earlier record. The current provisional source is BAT-D4E-3B, not the plain D4H working file. Historical GNSS/Wi-Fi/battery and reset statements retain their original date and may be superseded by the linked records. This reconstruction does not rerun or extend historical acceptance.
+
 # RID-01 validation register
 
 **Updated through 2026-11-04.** Results are derived from operator-provided serial logs, photographs, acceptance commands, and earlier handoff records. Do not extrapolate beyond tested scope.

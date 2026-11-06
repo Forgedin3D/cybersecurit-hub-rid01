@@ -1,0 +1,64 @@
+RID-01 BAT-D4D-R2 ACCEPTANCE REPORT
+Date: 2026-10-31
+
+STAGE:
+BAT-D4D-R2 ESTIMATED SOC / ALL-SCREEN HEADER
+
+SOURCE:
+Accepted BAT-D4C baseline, extended only
+for estimated SOC display and PRIVACY screen
+battery header visibility.
+
+OPERATOR-REPORTED HARDWARE VALIDATION:
+USB-C only: PASS
+LiPo battery only: PASS
+USB-C plus LiPo: PASS
+HOME battery header: PASS
+SELECT OUTPUT MODE battery header: PASS
+TARGETS battery header: PASS
+RADAR battery header: PASS
+ACK screen exclusion: PASS
+SNAPSHOT screen exclusion: PASS
+Normal functionality: PASS
+
+SOURCE / BUILD:
+Exact source diff reviewed: PASS
+Clean compilation: PASS
+Accepted baseline integrity: PASS
+No PMIC configuration changes: PASS
+No Remote ID backend modifications: PASS
+
+DISPLAY POLICY:
+Battery voltage displayed when valid.
+Charging/power state retained.
+Provisional AXP2101 SOC displayed as EST%.
+Invalid or unavailable readings use --.
+Absent-battery handling remains enabled.
+
+LIMITATIONS:
+SOC absolute accuracy is not yet validated.
+EST percent is an informational estimate.
+Runtime and low-battery limits not calibrated.
+Full charge termination not qualified.
+Long-duration thermal/endurance qualification
+remains outstanding.
+No direct battery cell-temperature sensing.
+
+BATTERY WORKSTREAM:
+Estimated SOC UI functionality accepted.
+Remaining battery qualification stays OPEN.
+
+D4H SHA256:
+7bdb2be698c63aba895e5b892f29478f8e215807126eb155bac9abd8fcabbfcf
+
+BAT-D4B SHA256:
+f26d860255f933de068c71b4ce8960187cbcad6ffa634ed051c8fd0277eba3ea
+
+BAT-D4C SHA256:
+5a55a5d9fe0b95ecf4943199793fbdba87016ca10d1fa5bf12ea138dfb8e314e
+
+BAT-D4D-R2 SHA256:
+a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e
+
+This archive does not upload firmware.
+No accepted source is overwritten.

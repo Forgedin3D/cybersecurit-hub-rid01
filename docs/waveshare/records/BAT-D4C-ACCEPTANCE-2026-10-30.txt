@@ -1,0 +1,63 @@
+RID-01 BAT-D4C ACCEPTANCE REPORT
+Date: 2026-10-30
+
+STAGE:
+BAT-D4C Operator Battery Safety Acknowledgment
+
+ACCEPTANCE RESULTS:
+Clean compilation: PASS
+Original Remote ID notice retained: PASS
+Battery safety warning readable: PASS
+Notice/button separation: PASS
+Cold boot acknowledgment: PASS
+ACK to HOME: PASS
+Physical RESET re-requires acknowledgment: PASS
+Temporary R2 debug text removed: PASS
+Battery header on normal screens retained: PASS
+Existing device functionality regression: PASS
+
+RESET INVESTIGATION:
+Temporary R2 hardware diagnostic showed:
+R:1 P:0 F:1 A:0
+
+ESP32-S3 reported ESP_RST_POWERON for
+the physical RESET button.
+
+RTC acknowledgment markers were not valid
+at startup, before firmware clearing.
+
+Therefore the physical RESET requires a new
+operator acknowledgment on this hardware.
+
+Historical note:
+An earlier D4H acceptance report described
+post-ACK RESET returning directly to HOME.
+That observation is not reproduced by the
+later instrumented hardware tests.
+
+The original report remains preserved.
+Software-only reset persistence is not
+established by the physical RESET test.
+
+BATTERY SAFETY LIMITATIONS:
+Direct cell temperature monitoring unavailable.
+Battery percentage remains unvalidated.
+Full charging-cycle termination unqualified.
+Long-duration endurance and thermal testing pending.
+
+NEXT STAGE:
+BAT-D4D — SOC investigation and implementation.
+Battery workstream remains OPEN.
+
+ACCEPTED D4H SHA256:
+7bdb2be698c63aba895e5b892f29478f8e215807126eb155bac9abd8fcabbfcf
+
+ACCEPTED BAT-D4B SHA256:
+f26d860255f933de068c71b4ce8960187cbcad6ffa634ed051c8fd0277eba3ea
+
+ACCEPTED BAT-D4C SHA256:
+5a55a5d9fe0b95ecf4943199793fbdba87016ca10d1fa5bf12ea138dfb8e314e
+
+Firmware accepted for tested functionality only.
+No firmware upload performed by this archive.
+No accepted source overwritten.

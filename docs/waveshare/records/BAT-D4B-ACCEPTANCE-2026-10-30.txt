@@ -1,0 +1,35 @@
+RID-01 BAT-D4B ACCEPTANCE
+Date: 2026-10-30
+
+Stage:
+BAT-D4B Battery Telemetry and Operator Power Header
+
+Acceptance:
+B1 USB-only UI inspection: PASS
+B2 Battery-powered display: PASS
+USB-to-battery transition: PASS
+B3 Cold boot acknowledgment: PASS
+SNAPSHOT isolation: PASS
+PRIVATE/OPEN mode regression: PASS
+STOP/HOME regression: PASS
+Live TARGETS and RADAR display: PASS
+R111S T01 reception observed: PASS
+Manual receiver reference retained during
+continuous powered operation: PASS
+
+Known limitations:
+Battery SOC percentage is not validated.
+Operator UI deliberately displays SOC:--.
+Battery-cell temperature is not monitored.
+Full charging-cycle termination and endurance
+have not been qualified.
+Existing target information refresh pulse remains.
+
+Accepted D4H SHA256:
+7bdb2be698c63aba895e5b892f29478f8e215807126eb155bac9abd8fcabbfcf
+
+Accepted BAT-D4B SHA256:
+f26d860255f933de068c71b4ce8960187cbcad6ffa634ed051c8fd0277eba3ea
+
+No accepted source was overwritten.
+No hardware upload was performed by this freeze.

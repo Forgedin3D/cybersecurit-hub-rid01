@@ -1,0 +1,213 @@
+--- RID_UI_Migration.ino.STAGE1B-D4G-STOP-HOME-HARDENING-ACCEPTED-2026-10-23
++++ RID_UI_Migration.ino.STAGE1B-D4H-COLD-BOOT-ACK-ACCEPTED-2026-10-29
+@@ -1,3 +1,5 @@
++#include "esp_system.h"
++#include "esp_attr.h"
+ #include <Arduino.h>
+ #include <Wire.h>
+ #include <Arduino_GFX_Library.h>
+@@ -59,6 +61,15 @@
+ uint32_t lastDashboardPrintMs = 0;
+ 
+ uint32_t targetAllocationFailures = 0;
++
++// D4H cold-boot acknowledgment.
++bool ridBootAckAccepted = false;
++
++// D4H-B: Retain accepted state across supported warm resets.
++// Never persist acceptance in flash.
++static constexpr uint32_t RID_ACK_MAGIC = 0x52494431u;
++RTC_NOINIT_ATTR uint32_t ridAckRtcMagic;
++RTC_NOINIT_ATTR uint32_t ridAckRtcCheck;
+ 
+ 
+ // ============================================================
+@@ -3675,6 +3686,11 @@
+ bool startRIDScanWindow(
+     bool newOperatorSession
+ ) {
++    if (!ridBootAckAccepted) {
++        Serial.println("[ACK] BLE START blocked.");
++        return false;
++    }
++
+ 
+     if (pBLEScan == nullptr) {
+         Serial.println(
+@@ -5446,6 +5462,7 @@
+ 
+ 
+ enum WSUIScreen {
++    WS_SCREEN_NOTICE,
+     WS_SCREEN_HOME,
+     WS_SCREEN_PRIVACY,
+     WS_SCREEN_LIVE,
+@@ -5461,6 +5478,7 @@
+ 
+ enum WSButtonID {
+     WS_BTN_NONE = -1,
++    WS_BTN_ACKNOWLEDGE,
+ 
+     WS_BTN_BEGIN,
+ 
+@@ -5616,7 +5634,7 @@
+ // ------------------------------------------------------------
+ 
+ WSUIScreen wsCurrentScreen =
+-    WS_SCREEN_HOME;
++    WS_SCREEN_NOTICE;
+ 
+ WSLiveView wsCurrentLiveView =
+     WS_VIEW_TARGETS;
+@@ -7096,6 +7114,45 @@
+ // ============================================================
+ // HOME SCREEN
+ // ============================================================
++
++
++// ============================================================
++// D4H: OPERATOR NOTICE
++// ============================================================
++
++void wsDrawBootNotice() {
++    wsGfx->fillScreen(BLACK);
++    wsDrawHeader("RID-01 OPERATOR NOTICE", false);
++
++    static const char *lines[] = {
++        "RID-01 receives broadcast Remote ID",
++        "information. Signal availability",
++        "and position accuracy may vary.",
++        "Data may be delayed, incomplete,",
++        "or spoofed.",
++        "Informational aid only; not a",
++        "certified collision-avoidance",
++        "system. Do not rely on it alone",
++        "for flight safety decisions."
++    };
++
++    wsGfx->setTextSize(2);
++    wsGfx->setTextColor(WHITE);
++
++    for (uint8_t i = 0; i < 9; i++) {
++        wsGfx->setCursor(18, 57 + i * 22);
++        wsGfx->print(lines[i]);
++    }
++
++    wsGfx->fillRoundRect(
++        54, 262, 372, 45, 8, CYAN
++    );
++
++    wsGfx->setTextSize(2);
++    wsGfx->setTextColor(BLACK);
++    wsGfx->setCursor(108, 276);
++    wsGfx->print("ACKNOWLEDGE & CONTINUE");
++}
+ 
+ void wsDrawHomeScreen() {
+ 
+@@ -9372,6 +9429,10 @@
+         wsCurrentScreen
+     ) {
+ 
++        case WS_SCREEN_NOTICE:
++            wsDrawBootNotice();
++            break;
++
+         case WS_SCREEN_HOME:
+ 
+             wsDrawHomeScreen();
+@@ -9410,6 +9471,13 @@
+     switch (
+         wsCurrentScreen
+     ) {
++
++        case WS_SCREEN_NOTICE:
++            if (x >= 54 && x < 426 &&
++                y >= 262 && y < 307) {
++                return WS_BTN_ACKNOWLEDGE;
++            }
++            break;
+ 
+         case WS_SCREEN_HOME:
+ 
+@@ -9645,6 +9713,9 @@
+ ) {
+ 
+     switch (button) {
++
++        case WS_BTN_ACKNOWLEDGE:
++            return "ACKNOWLEDGE";
+ 
+         case WS_BTN_BEGIN:
+             return "BEGIN";
+@@ -9713,10 +9784,32 @@
+     WSButtonID button
+ ) {
+ 
++    if (!ridBootAckAccepted &&
++        button != WS_BTN_ACKNOWLEDGE) {
++        Serial.println("[ACK] UI control blocked.");
++        return;
++    }
++
+     bool redraw = true;
+ 
+ 
+     switch (button) {
++
++        case WS_BTN_ACKNOWLEDGE:
++            if (wsCurrentScreen != WS_SCREEN_NOTICE) {
++                redraw = false;
++                break;
++            }
++
++            ridAckRtcMagic = RID_ACK_MAGIC;
++            ridAckRtcCheck = ~RID_ACK_MAGIC;
++            ridBootAckAccepted = true;
++            wsCurrentScreen = WS_SCREEN_HOME;
++
++            Serial.println(
++                "[ACK] Operator acknowledged notice."
++            );
++            break;
+ 
+         case WS_BTN_BEGIN:
+ 
+@@ -10354,6 +10447,37 @@
+ 
+     outputMode = MODE_PRIVATE;
+ 
++    // D4H: Required after reported cold power-on.
++    esp_reset_reason_t resetReason = esp_reset_reason();
++
++    // A fresh power event always requires acknowledgment.
++    // Invalid/lost retained state also fails closed.
++    const bool freshPower =
++        resetReason == ESP_RST_POWERON ||
++        resetReason == ESP_RST_BROWNOUT ||
++        resetReason == ESP_RST_PWR_GLITCH ||
++        resetReason == ESP_RST_UNKNOWN;
++
++    if (freshPower) {
++        ridAckRtcMagic = 0;
++        ridAckRtcCheck = 0;
++    }
++
++    ridBootAckAccepted =
++        (ridAckRtcMagic == RID_ACK_MAGIC) &&
++        (ridAckRtcCheck == ~RID_ACK_MAGIC);
++
++    wsCurrentScreen = ridBootAckAccepted
++        ? WS_SCREEN_HOME
++        : WS_SCREEN_NOTICE;
++
++    Serial.printf(
++        "[ACK] Reset reason=%d / notice=%s\n",
++        (int)resetReason,
++        ridBootAckAccepted ? "SKIPPED" : "REQUIRED"
++    );
++
++
+ 
+     // ------------------------------------------------
+     // Waveshare display bring-up

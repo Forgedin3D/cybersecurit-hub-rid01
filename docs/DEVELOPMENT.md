@@ -1,50 +1,29 @@
 # Local development and repository workflow
 
-## Source of truth
+**November 6, 2026 current-state replacement proposal.** This supersedes the prior guide's use of the plain D4H working file as the newest source.
 
-Accepted Waveshare source currently resides **only on the operator's Kali VM**:
-`~/Waveshare_RID_S3/RID_UI_Migration/RID_UI_Migration.ino`.
+## Identify the baseline explicitly
 
-**Accepted D4H hash:** `7bdb2be698c63aba895e5b892f29478f8e215807126eb155bac9abd8fcabbfcf` (2026-10-29). Match the working and frozen acceptance copy before doing further work. See [BASELINES.md](BASELINES.md).
+Current provisional reference: **BAT-D4E-3B**, SHA-256 `2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670`. Accepted rollback: **BAT-D4D-R2**, SHA-256 `a485eadad7af3ac706db9e10e053e492bd48b7eb61460f17374c989bf00d2d0e`. The plain Kali `RID_UI_Migration.ino` still hashes to historical D4H (`7bdb2be6…`). Importing a copy here must not overwrite any of those Kali files or flash a board.
 
-GitHub currently contains project documentation and **not the compiled/accepted `.ino`**, so do not build from this repository until the source is deliberately imported and dependencies are recorded.
+The source [manifest](../firmware/waveshare/SOURCE_MANIFEST.json) maps repository copies to archived filenames. Source identity is not installed-binary identity. Existing device functionality is supported by the operator's stage-specific tests, not by a Git commit.
 
-## Toolchain
+## Development gate
 
-- Kali Linux VM; Arduino CLI
-- `esp32:esp32` core `3.3.11`
-- Waveshare ESP32-S3 Rev2.0, /dev/ttyACM0 when enumerated (not a portable fixed device name)
-- Local libraries under `~/Waveshare_RID_S3/compat_libraries`
-- Required compiled board options below (hardware acceptance environment)
+Inspect → isolate → bounded change → review diff → compile → physical acceptance when required → freeze → record evidence → approved repository update. Do not patch the accepted archive. Do not silently turn a synthetic visual or fault-injection build into a production reference.
 
-```bash
-FQBN='esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CPUFreq=240'
+## Fresh compile for this historical import
 
-arduino-cli compile \
-  --libraries "$HOME/Waveshare_RID_S3/compat_libraries" \
-  --fqbn "$FQBN" \
-  "$HOME/Waveshare_RID_S3/RID_UI_Migration"
-```
+Use [BUILD.md](waveshare/BUILD.md) and the supplied compile-only helper. It creates a new directory, verifies the current freeze plus rollback/working-source guards, copies hash-pinned dependency inputs, compiles with the recorded board options and checks input hashes afterward. It neither uploads nor requires a board connection. A separate explicit approval is required for a repository write or device flash.
 
-An upload must use the accepted candidate and verified build output, with explicit board options plus `UploadSpeed=115200,UploadMode=default,EraseFlash=none`. Perform live acceptance after flashing. **Do not use this document as an instruction to flash unreviewed development code**.
+**Current gate:** the November 6 isolated Kali compilation of BAT-D4E-3B passed and its returned evidence was reconciled. See the [build review](waveshare/records/CLEAN-COMPILE-REVIEW-2026-11-06.md). This is separate from the host-only test; it does not repeat historical-stage hardware acceptance. Final owner review and explicit push approval remain pending.
 
-## Recommended branch and milestone method
+## Records required for future milestones
 
-- `main`: documentation of current accepted status and eventual audited source only.
-- `feature/...`: isolated development and discussion.
-- Do not alter the accepted frozen baseline to fix a speculative issue.
-- Record named stage, source hash, diff, compile result, upload target, hardware outcome, privacy review and rollback path.
-- Commit honest documentation even before source import; historic acceptance stages precede repository creation.
+Record stage/date, source hash, dependency/configuration changes, compiler command/result, binary hashes, device/test setup, pass/fail criteria, raw local observations, privacy-clean sharing evidence, limitations and rollback. Keep firmware test dates separate from documentation/import dates.
 
-## Future audited source import
+For GNSS, start a new isolated candidate only after the pre-GNSS snapshot is accounted for. Preserve stale/no-fix behavior and receiver-position provenance. Freeze BLE + battery + GNSS before a separate Wi-Fi branch. A failed combined-radio experiment must leave a recoverable BLE-only reference.
 
-1. On Kali, independently confirm D4H working source SHA-256 against [BASELINES](BASELINES.md).
-2. Preserve frozen source/rollbacks in an offline backup.
-3. Audit the **entire source tree**, comments, fixtures and local logs for GPS coordinates, Remote ID serials, registration, MAC addresses, credentials and vendor license obligations.
-4. Decide whether source stays private, which third-party files can legally be committed, and which files belong in a public case-study-only mirror.
-5. Import a vetted source copy via a distinct reviewable change; create a baseline tag **only after** checking the hosted file hash. Do not force-push or rewrite history casually.
-6. Recompile from repository only after dependencies and pinning are repeatable.
+## Existing historical records
 
-## External documentation
-
-Original conversations and long-form handoffs remain external historical evidence rather than GitHub-attached artifacts. [PROVENANCE](PROVENANCE.md) explains which evidence this repository's descriptions were based on.
+Existing CYD1 and October handoff documents remain history. Where an older document says D4H is current or predicts RESET-to-HOME, use the newer [status reconciliation](waveshare/STATUS.md) and [validation matrix](waveshare/VALIDATION.md). Do not erase the earlier record to hide a corrected observation.

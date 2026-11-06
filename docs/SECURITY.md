@@ -1,3 +1,5 @@
+> **Current-state reconciliation — November 6, 2026:** Read [Waveshare pre-GNSS status](waveshare/STATUS.md), [build procedure](waveshare/BUILD.md) and [validation](waveshare/VALIDATION.md) alongside this earlier record. The current provisional source is BAT-D4E-3B, not the plain D4H working file. Historical GNSS/Wi-Fi/battery and reset statements retain their original date and may be superseded by the linked records. This reconstruction does not rerun or extend historical acceptance.
+
 # Security, privacy and responsible operation
 
 **Repository:** Private engineering work-in-progress. This document is an operational handling policy, not a product security certification.

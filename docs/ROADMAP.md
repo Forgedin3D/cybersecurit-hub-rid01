@@ -1,3 +1,5 @@
+> **Current-state reconciliation — November 6, 2026:** Read [Waveshare pre-GNSS status](waveshare/STATUS.md), [build procedure](waveshare/BUILD.md) and [validation](waveshare/VALIDATION.md) alongside this earlier record. The current provisional source is BAT-D4E-3B, not the plain D4H working file. Historical GNSS/Wi-Fi/battery and reset statements retain their original date and may be superseded by the linked records. This reconstruction does not rerun or extend historical acceptance.
+
 # Product and engineering roadmap
 
 Status updated: **2026-11-04** (historical October 29 baseline retained below). The name RID-01 is an internal engineering designation; future marketing names are undecided.
