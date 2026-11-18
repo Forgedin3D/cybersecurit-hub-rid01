@@ -1,3 +1,5 @@
+> **Historical record — current-status notice (November 18, 2026):** The older material below preserves the development state at its original date. **RID-01 concluded at the R7 BLE/GNSS prototype on November 17, 2026.** The external LC76G GNSS integration was completed; Wi-Fi Remote ID and microSD logging were **not implemented**. Outdoor performance did not satisfy the intended field use, so development on this platform was stopped. For current information use [R7 status](STATUS.md), [bounded validation](R7_VALIDATION.md) and [final engineering decision](R7_FINAL_ASSESSMENT.md). Earlier statements that GNSS is pending, BAT-D4E-3B is the current release, or Wi-Fi/SD will be developed next are **superseded**. Historical evidence claims retain their original limited scope.
+
 # Battery integration and provisional operator warning
 
 The current source reads the AXP2101 at I2C address `0x34`, reports battery/USB presence, voltage, charge phase and gauge percentage, and does not add PMIC configuration writes. The register-address write used for a subsequent I2C read is not a charger-setting write.

@@ -1,0 +1,82 @@
+{
+  "title": "RID-01 final R7 release source and sample evidence hashes",
+  "scope": "SHA-256 for files included in this release; not live hardware authentication",
+  "created_date": "2026-11-18",
+  "files": [
+    {
+      "path": "firmware/waveshare/final-r7/RID_UI_Migration/RID_UI_Migration.ino",
+      "bytes": 243614,
+      "sha256": "7874c62c8d94be5684311e2f76dbec70ca205bf4c24a3cea005c1b03f92ddaf2"
+    },
+    {
+      "path": "tools/rid01/analysis/RID01_D3B1_CHECKSUM_ABA_ANALYZE.py",
+      "bytes": 3807,
+      "sha256": "eda8655fdcbe5411be2aaf6e61cdb52b6bfbabda7991d632cb21e2232dbb35eb"
+    },
+    {
+      "path": "tools/rid01/staging/RID01_STAGE_D3B2_RX1024_R3_v1.py",
+      "bytes": 27850,
+      "sha256": "85bfe3e108fdafb543eb3eba31b7cfded55ea2fe6b57e1cc30361f252f58a072"
+    },
+    {
+      "path": "tools/rid01/capture/RID01_CAPTURE_RX1024_R3_4SRC_ABA_v3.py",
+      "bytes": 45169,
+      "sha256": "5adfd243f2c8c2d6d268c260f08ba0303473ba2918ac938832646d950c809b60"
+    },
+    {
+      "path": "tools/rid01/capture/RID01_CAPTURE_RADAR_COLOR_R7_GUIDED_v1.py",
+      "bytes": 68756,
+      "sha256": "db7356363b28463436e1e171977b265cb1398d911206e049cc8c9c9806712da4"
+    },
+    {
+      "path": "assets/waveshare/portfolio/01-waveshare-lc76g-bench-wiring.jpg",
+      "bytes": 1244517,
+      "sha256": "480569492755287f9b5892adf1c78acaed0b8a96386b3c5798cd2bc7a5eb3d51"
+    },
+    {
+      "path": "assets/waveshare/portfolio/02-lc76g-gnss-module-detail.jpg",
+      "bytes": 748479,
+      "sha256": "0a686252ee875fdeae5f8fc3a3a8883c3f8c539ddeccaf7780d573ab9df56e5b"
+    },
+    {
+      "path": "assets/waveshare/portfolio/03-lipo-private-mode-test.jpg",
+      "bytes": 652692,
+      "sha256": "7d09a905217ad1816408710f298fa1924cdc99536253b16ae6fb1d8f91604a89"
+    },
+    {
+      "path": "assets/waveshare/portfolio/04-gnss-reference-selection.jpg",
+      "bytes": 454610,
+      "sha256": "ab908dd3fb52c1e95c480101716d6f74ac33cbfdd4111621315af8bbf5d32204"
+    },
+    {
+      "path": "assets/waveshare/portfolio/05-radar-before-callout-redesign.jpg",
+      "bytes": 500883,
+      "sha256": "70f09a82061862ebaeb1b69e65e77b329062fc135fd0aef3c2b9037bdab7790a"
+    },
+    {
+      "path": "assets/waveshare/portfolio/06-r6-corner-callout-layout.jpg",
+      "bytes": 468096,
+      "sha256": "1ce1f0b7749a64e52257968229fe4147071ae064e24fbb8635e12e561a310f48"
+    },
+    {
+      "path": "assets/waveshare/portfolio/07-r7-color-radar.jpg",
+      "bytes": 536835,
+      "sha256": "1d05244fe0a675181535bc1b1d24faeae0962da0fe54d4ba60c5d536ab0a2ffc"
+    },
+    {
+      "path": "assets/waveshare/portfolio/08-r7-target-details.jpg",
+      "bytes": 431012,
+      "sha256": "c532fc521ccbbc100ef5e428df3f6c032b047e3304216b5d6da9ef6119e2a636"
+    },
+    {
+      "path": "assets/waveshare/portfolio/09-r7-frozen-snapshot.jpg",
+      "bytes": 424938,
+      "sha256": "e9f27ab69be1f006278b8dea8e8b8f7161394eacae3870dafb7d7546991dc211"
+    },
+    {
+      "path": "assets/waveshare/portfolio/10-outdoor-portable-radar.jpg",
+      "bytes": 368582,
+      "sha256": "e37bd42ac841b8f6183ae3d99ec87ba8c9a77814874456545d75f8a69bce3a66"
+    }
+  ]
+}
