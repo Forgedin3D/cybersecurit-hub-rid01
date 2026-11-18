@@ -1,60 +1,60 @@
-# RID-01 — Passive Remote ID Handheld
+# RID-01 | Passive Remote ID + GNSS Handheld Prototype
 
-**CyberSecurit Hub | Embedded systems · wireless protocols · test engineering**
+**CyberSecurit Hub — embedded systems, wireless protocols and test engineering**\
+**Final engineering checkpoint:** R7, November 17, 2026\
+**Project status:** **Concluded as a cybersecurity/embedded-systems portfolio prototype.** Not a commercial or field-qualified Remote ID receiver.
 
-A touchscreen receiver for cooperative **Bluetooth Low Energy Remote ID** broadcasts, developed first on CYD1 and migrated to a Waveshare ESP32-S3-Touch-LCD-3.5 Rev2.0. It tracks up to four source slots and plots eligible aircraft positions relative to an explicitly supplied receiver reference.
+![Final R7 geographic RADAR interface, operating with two eligible geographic targets and two additional tracked test sources](assets/waveshare/portfolio/07-r7-color-radar.jpg)
 
-**Pre-GNSS snapshot: November 6, 2026.** Current locally frozen reference: **BAT-D4E-3B, provisionally accepted November 4**. Receiver GNSS and Wi-Fi Beacon reception are **not implemented/validated in this snapshot**. The documentation/source import is retrospective; it does not backdate Git history or imply a new hardware acceptance.
+*Actual Waveshare ESP32-S3 hardware photograph, R7 bounded test. Colored T01/T03 callouts correspond to real R111S Remote ID transmitters. T02/T04 were SYSTEM-only ESP32 beacons without fresh usable geographic position. `RANGE:500m` is the graphic's scale, **not** a demonstrated receiving range.*
 
-> **Review status:** This is the proposed pre-GNSS repository update. Source/media checks are staged, and the November 6 isolated Kali compile passed with returned evidence reconciled. Final owner media/package review and explicit push approval remain pending. See the [build evidence review](docs/waveshare/records/CLEAN-COMPILE-REVIEW-2026-11-06.md). Repository visibility and license policy must not change as part of this import.
+## Project summary
 
-![Four received sources, one geographic plot](assets/waveshare/IMG_4295-sanitized.jpg)
+RID-01 is an independently operated, **AI-assisted engineering project** exploring passive Bluetooth Low Energy (BLE) Remote ID reception, source lifecycle tracking, NMEA GNSS parsing, and a geographic visualization on an ESP32-S3 touchscreen. Its journey started on an earlier CYD1 board and migrated to a Waveshare ESP32-S3-Touch-LCD-3.5 Rev2.0 connected to an LC76G GNSS module.
 
-*November 6 bench demonstration: operator-reported R111S plus three SYSTEM-only ESP32 beacons. Four ACTIVE rows, but only the R111S provides usable aircraft Location/Vector data, so PLOTS:1 is correct. REF:FIXED is manually entered—not onboard receiver GNSS. T01–T04 are session slots, not fixed device identities.*
+RID-01 does **not** perform active radio-frequency radar, RF direction finding, or range estimation from RSSI. It computes display distance and bearing from cooperative broadcast position data relative to a selected receiver reference. It cannot verify the truth of a broadcast position or guarantee detection of aircraft.
 
-## What works—and what the evidence means
+## Implemented and observed
 
-| Capability | Evidence-bounded status |
+| Area | Evidence-based result |
 |---|---|
-| Passive BLE Remote ID | Implemented; real R111S and controlled SYSTEM-beacon tests recorded |
-| Four target slots | Independent ACTIVE/STALE/LOST presentation and selected-target views |
-| Geographic RADAR-style view | Coordinate-derived horizontal separation and true bearing; north-up; stale geography not plotted |
-| Operator workflow | HOME → output mode → START; TARGETS/RADAR; frozen SNAPSHOT; RESCAN; STOP/HOME |
-| Privacy | PRIVATE defaults and UI/serial redaction; not encryption or transmitter authentication |
-| Battery UI | Voltage, BAT/USB/CHG state and provisional EST percentage; absent on ACK/SNAPSHOT |
-| Low-voltage alert | Provisional voltage-based warning, not automatic cutoff; simulation tested, real low-cell activation still unqualified |
-| GNSS / Wi-Fi | Next phases, not capabilities of this baseline |
+| BLE Remote ID receiver | Passive parsing and up to four session target slots; mixed test with **two R111S Remote ID transmitters plus two controlled ESP32 SYSTEM beacons** |
+| Target lifecycle | ACTIVE / STALE / LOST handling, view switching, snapshot, RESCAN and STOP/HOME |
+| GNSS receiver reference | External LC76G integrated over UART; checksum-validated NMEA; GNSS-powered RADAR READY demonstrated |
+| Geographic RADAR | North-up plotted positions when fresh usable geography is present; R6 corner labels, R7 slot colors and leader lines |
+| Power/UI | Standalone LiPo-powered bounded functional observation, voltage/state header and provisional estimated percentage; **not a qualified fuel gauge or battery safety certification** |
+| Diagnostic automation | Python guarded staging, checksum/serial analysis and privacy-conscious guided captures; SHA-256 source and build-artifact evidence |
+| R7 acceptance | Bounded 396.652-second guide completed; 169 accepted complete dashboards with four ACTIVE sources; **zero new recorded GNSS/UART errors**; 28 incomplete host dashboard notices retained |
 
-**Not an RF radar.** The display does not estimate distance from RSSI or measure time of flight. Its 500 m display scale is not a measured detection range. Earlier four-plot photos used explicitly synthetic coordinate fixtures; they are not four-aircraft reception tests.
+These are bounded test observations, not general field-performance guarantees. Read [R7 validation](docs/waveshare/R7_VALIDATION.md) and [final assessment](docs/waveshare/R7_FINAL_ASSESSMENT.md) for exact scope.
 
-## Read the engineering evidence
+## Why development stopped
 
-[Current state and open gates](docs/waveshare/STATUS.md) · [Migration history](docs/waveshare/HISTORY.md) · [RADAR decisions and debugging](docs/waveshare/RADAR.md) · [Validation matrix](docs/waveshare/VALIDATION.md) · [Battery qualification boundaries](docs/waveshare/BATTERY.md) · [Media and captions](docs/waveshare/MEDIA.md)
+Outdoor property trials with two R111S units revealed unreliable real-world tracking: the operator repeatedly observed target disappearance while increasing separation, often around/beyond approximately **35 m** under that setup. No calibrated RF-loss measurement isolated a unique root cause. This **operator-observed field shortfall**, together with the architecture's antenna, GNSS integration, display and power-management compromises, did not satisfy the intended portable field-instrument requirements.
 
-![Early centered RADAR fixture](assets/waveshare/IMG_3923-sanitized.jpg)
+Further development on this board was deliberately stopped. **Wi-Fi Beacon RID reception, microSD storage/logging, a proposed additional RADAR display, and production safety qualification were not implemented**. The earlier engineering living record contains now-superseded future plans; this dated closeout is the controlling project status. The successful BLE/GNSS prototype is retained as a portfolio artifact.
 
-*Early on-device visual development. Synthetic fixtures made layout/geometry repeatable; later production checkpoints remove the injected targets.*
+## Code and evidence navigation
 
-## Preserved source identity
+- **[Complete, tested R7 C++/Arduino source](firmware/waveshare/final-r7/RID_UI_Migration/RID_UI_Migration.ino)** — source SHA-256: `7874c62c8d94be5684311e2f76dbec70ca205bf4c24a3cea005c1b03f92ddaf2`
+- [Firmware provenance and recorded build](firmware/waveshare/final-r7/README.md) · [R7 build/reproducibility detail](docs/waveshare/R7_BUILD.md)
+- [System architecture and data boundaries](docs/waveshare/R7_ARCHITECTURE.md)
+- [Engineering case study](docs/waveshare/R7_CASE_STUDY.md)
+- [R7 validation and measurements](docs/waveshare/R7_VALIDATION.md) · [structured evidence summary](docs/waveshare/records/R7_ACCEPTANCE_SUMMARY.json)
+- [Final engineering decision and limitations](docs/waveshare/R7_FINAL_ASSESSMENT.md)
+- [Python automation workflow](tools/rid01/README.md)
+- [Curated photo gallery](docs/waveshare/R7_MEDIA.md)
+- [CYD1 project history](docs/history/CYD1.md) and [earlier Waveshare source](firmware/waveshare/reference/RID_UI_Migration/RID_UI_Migration.ino) are preserved as **historical** evidence; neither is the final R7 firmware.
 
-[Current reference sketch](firmware/waveshare/reference/RID_UI_Migration/RID_UI_Migration.ino):
+## Technology and contributions
 
-```text
-2704617b96b24bc394ce4a9b1b7dbfa8b367c0e31776923e0ffd1ef026528670
-```
+**Hardware:** ESP32-S3 touchscreen, external LC76G GNSS, R111S Remote ID transmitters, controlled ESP32 beacons, supervised LiPo battery.\
+**Software:** Arduino/C++, BLE/OpenDroneID-related parsing, NMEA/UART, Arduino CLI + ESP32 core 3.3.11, Python 3 test and staging tools, SHA-256 validation, GitHub.
 
-[Source manifest and historical selection](firmware/waveshare/SOURCE_MANIFEST.json) preserve original bytes and archive names. The plain working `.ino` on Kali remains the older D4H source; do not treat that filename as the latest accepted release. [Build instructions](docs/waveshare/BUILD.md) use an isolated copy of the explicitly named newer freeze.
+**Contribution disclosure:** The owner established requirements, integrated and operated the hardware, executed tests, identified field deficiencies and selected acceptance/closure decisions. AI assistance contributed code proposals, Python scripts, analysis and documentation; vendor examples and external libraries remain separately attributed. The portfolio does **not** claim that the owner independently authored every line or has production software-engineering credentials.
 
-## Original CYD1 chapter
+## Security, usage and source licensing
 
-The original CYD1 reference, accepted October 12, remains preserved separately: [history](docs/history/CYD1.md), [integration case study](docs/history/CYD1-B2A-compile-fix.md), [acceptance evidence](docs/validation/CYD1.md), and [firmware](firmware/cyd1/README.md). Its test counts and binary sizes must not be attributed to the Waveshare.
+The project is a passive educational prototype, not a certified safety, counter-UAS or law-enforcement instrument. Remote ID data can be missing, delayed, inaccurate or spoofed; PRIVATE is an output-redaction policy, not encryption or authentication. Original field logs, location-bearing images, and identifiable transmitter data remain out of the public evidence gallery.
 
-## Next milestones
-
-Complete this pre-GNSS source/build/documentation gate → integrate LC76G receiver reference → regress BLE, power and operator controls together → freeze source/configuration/dependencies/build artifacts → develop Wi-Fi-only reception → evaluate combined BLE/Wi-Fi operation. Separate BLE-only and Wi-Fi-only modes are a proposed fallback, not implemented behavior. See [roadmap](docs/waveshare/ROADMAP.md).
-
-## Provenance and safety
-
-Christopher Estrada directed requirements, operated equipment, reported test observations and controlled acceptance. Assistant support contributed proposals, code, analysis and documentation; third-party dependencies are separately attributed. [Provenance/notices](docs/waveshare/PROVENANCE.md).
-
-This is an informational receiver of cooperative, potentially incomplete or spoofed broadcasts—not a certified collision-avoidance device or detection guarantee. No direct cell-temperature sensor is monitored. Supervised battery use and unresolved battery qualifications remain documented. Original media and unsanitized logs remain private. This private review does not assign a new project-wide license or authorize public release.
+Third-party dependencies are **not vendored wholesale**. The original project has **no project-wide license grant**; publication does not implicitly authorize reuse. See [provenance](docs/waveshare/PROVENANCE.md) and [security](docs/SECURITY.md) before redistribution.

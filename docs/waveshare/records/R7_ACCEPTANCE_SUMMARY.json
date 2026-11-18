@@ -1,0 +1,111 @@
+{
+  "schema": "rid01-r7-bounded-observation-v1",
+  "project": "RID-01",
+  "candidate": "RX1024_RADAR_COLOR_R7",
+  "observed_date": "2026-11-17",
+  "identity": {
+    "source_sha256": "7874c62c8d94be5684311e2f76dbec70ca205bf4c24a3cea005c1b03f92ddaf2",
+    "application_sha256_from_compile": "1240f5c17591fac55443f3bb57321a51f5925ab99e0fa4c8b10e68cac368b4a6",
+    "caveat": "host firmware identity expectations are not physical flash attestation"
+  },
+  "guided_capture": {
+    "elapsed_seconds": 396.652,
+    "protocol_complete": true,
+    "device_application_commands_sent": 0,
+    "complete_dashboard_blocks": 169,
+    "incomplete_host_dashboard_notices": 28,
+    "accepted_dashboard_rows_per_block": 4,
+    "tracked_targets": 4,
+    "all_four_active_in_accepted_snapshots": true,
+    "first_to_last_retained_slot_packet_counters": {
+      "T01": [
+        3,
+        1073
+      ],
+      "T02": [
+        2,
+        1537
+      ],
+      "T03": [
+        2,
+        1208
+      ],
+      "T04": [
+        1,
+        489
+      ]
+    }
+  },
+  "receiver_gnss": {
+    "reports": 80,
+    "fix_reported_fresh_count": 80,
+    "reported_sats_range": [
+      30,
+      33
+    ],
+    "checksum_bad_begin_end": [
+      1,
+      1
+    ],
+    "malformed_begin_end": [
+      0,
+      0
+    ],
+    "long_begin_end": [
+      0,
+      0
+    ]
+  },
+  "receiver_uart": {
+    "reports": 40,
+    "requested_rx_buffer_bytes": 1024,
+    "set_rx_buffer_bytes": 1024,
+    "uart_init": "OK",
+    "buf_full_begin_end": [
+      2,
+      2
+    ],
+    "fifo_overflow_begin_end": [
+      11,
+      11
+    ],
+    "frame_parity_break_other_new_errors": 0,
+    "peak_service_gap_ms": 25,
+    "peak_queued_bytes": 278
+  },
+  "final_scan": {
+    "reported_scan_elapsed_ms": 199710,
+    "scan_windows": 4,
+    "advertisement_callbacks": 23791,
+    "transport_rid_fields": 4317,
+    "tracked": 4,
+    "allocation_failures": 0
+  },
+  "ui_controls_observed": [
+    "GNSS reference selection",
+    "RADAR ACQUIRING to READY",
+    "TARGETS",
+    "SNAPSHOT",
+    "BACK_TO_LIVE",
+    "RADAR return",
+    "PRIVATE to OPEN to PRIVATE",
+    "SCAN_STOP_REQUEST to SCAN_STOPPED"
+  ],
+  "test_sources": {
+    "T01": "commercial R111S geographic target",
+    "T03": "commercial R111S geographic target",
+    "T02": "ESP32 SYSTEM beacon without usable fresh geographic plot",
+    "T04": "ESP32 SYSTEM beacon without usable fresh geographic plot"
+  },
+  "limitations": [
+    "one bounded test, not field performance or endurance qualification",
+    "no calibrated RF range or GPS accuracy measurement",
+    "28 incomplete host dashboard-parser notices remain",
+    "two real geographic plots, not four simultaneously plotted aircraft",
+    "nonzero error counters were already present before capture, but did not increment",
+    "radio/battery/field hardware not certified"
+  ],
+  "data_provenance": "Sanitized host receipt log RID01_RADAR_COLOR_R7_GUIDED_V1_SANITIZED_20261117T170115_111022Z.log, operator photographs, reviewed R7 source/compile archive and dated runtime acceptance report",
+  "privacy": "No coordinates, MAC addresses, registration numbers or serial identifiers copied into this public summary",
+  "project_disposition": "Development stopped following informal outdoor operator observations of unreliable target continuity, often around or beyond approximately 35 m in that particular setup. Cause not independently isolated."
+}

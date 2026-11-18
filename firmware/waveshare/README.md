@@ -1,4 +1,8 @@
+> **Historical record — current-status notice (November 18, 2026):** The older material below preserves the development state at its original date. **RID-01 concluded at the R7 BLE/GNSS prototype on November 17, 2026.** The external LC76G GNSS integration was completed; Wi-Fi Remote ID and microSD logging were **not implemented**. Outdoor performance did not satisfy the intended field use, so development on this platform was stopped. For current information use [R7 status](../../docs/waveshare/STATUS.md), [bounded validation](../../docs/waveshare/R7_VALIDATION.md) and [final engineering decision](../../docs/waveshare/R7_FINAL_ASSESSMENT.md). Earlier statements that GNSS is pending, BAT-D4E-3B is the current release, or Wi-Fi/SD will be developed next are **superseded**. Historical evidence claims retain their original limited scope.
+
 # Waveshare reference and curated historical source
+
+**Looking for the final tested implementation?** See [R7 source and build record](final-r7/README.md). This directory preserves a **November 6 pre-GNSS historical snapshot** and does not represent the final firmware.
 
 `reference/RID_UI_Migration/RID_UI_Migration.ino` is the byte-identical **BAT-D4E-3B** provisional accepted archive, not the older plain working master on Kali. SHA-256:
 
